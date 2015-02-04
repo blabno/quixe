@@ -67,18 +67,26 @@ Quixe = (function() {
 function OutputBuffer() {
     this._channelData = {};
     this._channel = ('M' << 24) | ('A' << 16) | ('I' << 8) | 'N';
+    qlog('### set default channel');
     this._channelData[this._channel] = '';
     this.get_channel = function() {
+        qlog('OutputBuffer.get_channel');
         return this._channel;
     }
     this.set_channel = function(channel) {
+        qlog('OutputBuffer.set_channel = ' + this.get_channel_name(channel));
         this._channelData[channel] = '';
         this._channel = channel;
     }
     this.write = function(s) {
-        this._channelData[this._channel] += s;
+        qlog('OutputBuffer.write');
+        if (s instanceof Number)
+            this._channelData[this._channel] += String.fromCharCode(s);
+        else
+            this._channelData[this._channel] += s;
     }
     this.flush = function() {
+        qlog('OutputBuffer.flush');
         var result = {};
 
         for (var x in this._channelData) {
@@ -88,13 +96,18 @@ function OutputBuffer() {
             }
         }
 
+        qlog('result = ' + JSON.stringify(result));
         return result;
     }
     this.get_channel_name = function(channel) {
-        return (String.fromCharCode(channel >> 24) & 0xff) 
-            + (String.fromCharCode(channel >> 16) & 0xff) 
-            + (String.fromCharCode(channel >> 8) & 0xff) 
-            + (String.fromCharCode(channel) & 0xff);
+        var char1 = (channel >> 24) & 0xff;
+        var char2 = (channel >> 16) & 0xff;
+        var char3 = (channel >> 8) & 0xff;
+        var char4 = channel & 0xff;
+        return String.fromCharCode(char1) 
+            + String.fromCharCode(char2) 
+            + String.fromCharCode(char3) 
+            + String.fromCharCode(char4);
     }
 }
 
@@ -556,6 +569,7 @@ function VMFunc(funcaddr, startpc, localsformat, rawformat) {
     this[0] = {};
     this[1] = {};
     this[2] = {};
+    this[20] = {};
 
     this.locallen = null;
     this.localsformat = localsformat; /* array of {size, count} */
@@ -1560,7 +1574,7 @@ var opcode_table = {
 
     0x160: function(context, operands) { /* callf */
         oputil_unload_offstate(context);
-        oputil_push_callstub(context, operands[1]);
+        oputil_push_callstub(context, operands[1]);        
         context.code.push("enter_function("+operands[0]+", 0);");
         context.code.push("return;");
         context.path_ends = true;
@@ -2173,6 +2187,15 @@ var opcode_table = {
 
     0x70: function(context, operands) { /* streamchar */
         switch (context.curiosys) {
+        case 20: /* channels */
+            if (quot_isconstant(operands[0])) {
+                var val = Number(operands[0]) & 0xff;
+                context.code.push("instance._outputBuffer.write("+val+");");
+            }
+            else {
+                context.code.push("instance._outputBuffer.write(("+operands[0]+")&0xff);");
+            }
+            break;
         case 2: /* glk */
             if (quot_isconstant(operands[0])) {
                 var val = Number(operands[0]) & 0xff;
@@ -2198,6 +2221,16 @@ var opcode_table = {
 
     0x71: function(context, operands) { /* streamnum */
         switch (context.curiosys) {
+        case 20: /* channels */
+            var sign0 = oputil_signify_operand(context, operands[0]);
+            if (quot_isconstant(operands[0])) {
+                var val = Number(sign0).toString(10);
+                context.code.push("instance._outputBuffer.write("+QuoteEscapeString(val)+");");
+            }
+            else {
+                context.code.push("instance._outputBuffer.write(("+sign0+").toString(10));");
+            }
+            break;
         case 2: /* glk */
             var sign0 = oputil_signify_operand(context, operands[0]);
             if (quot_isconstant(operands[0])) {
@@ -2234,6 +2267,15 @@ var opcode_table = {
 
     0x73: function(context, operands) { /* streamunichar */
         switch (context.curiosys) {
+        case 20: /* channels */
+            if (quot_isconstant(operands[0])) {
+                var val = Number(operands[0]);
+                context.code.push("instance._outputBuffer.write("+val+");");
+            }
+            else {
+                context.code.push("instance._outputBuffer.write("+operands[0]+");");
+            }
+            break;
         case 2: /* glk */
             if (quot_isconstant(operands[0])) {
                 var val = Number(operands[0]);
@@ -2606,38 +2648,36 @@ var opcode_table = {
     },
 
     0x1000: function(context, operands) { /* fyrecall */
-        switch(operands[0]) {
-            case 1: /* ReadLine */
-                context.code.push("instance.trigger('ready', [instance._outputBuffer.flush()];");
-                context.code.push("instance.trigger('readline');");
-                break;
-            case 2: /* ToLower */
-                context.code.varsused["fvm1"];
-                context.code.push("fvm1 = String.fromCharCode(" + operands[1] + ");");
-                context.code.push(operands[2] + "fvm1.toLowerCase());");
-                break;
-            case 3: /* ToUpper */
-                context.code.varsused["fvm1"];
-                context.code.push("fvm1 = String.fromCharCode(" + operands[1] + ");");
-                context.code.push(operands[2] + "fvm1.toUpperCase());");
-                break;
-            case 4: /* Channel */
-                context.code.push("instance._outputBuffer.set_channel(" + operands[1] + ");");
-                break;
-            case 5: /* ReadKey */
-                context.code.push("instance.trigger('ready', [instance._outputBuffer.flush()];");
-                context.code.push("instance.trigger('readkey');");
-                break;
-            case 6: /* SetVeneer */
-                // N.B. this is a nop in quixe since opcodes are already
-                // converted into javascript.
-                break;
-            case 7: /* RequestTransition */
-                context.code.push("instance.emitEvent('transition');");
-                break;
-            default:
-                throw('Unrecognized FyreVM system call #' + operands[0]);
-        }
+        context.code.push(operands[3] + "do_fyrecall(" + operands[0] + ", " + operands[1] + ", " + operands[2] + "));");
+    }
+}
+
+function do_fyrecall(mode, param1, param2) {
+    switch(mode) {
+        case 1: /* ReadLine */
+            instance.trigger('ready', [instance._outputBuffer.flush()]);
+            instance.trigger('readline', [param1, param2]);
+            return 0;
+        case 2: /* ToLower */
+            return String.fromCharCode(param1).toLowerCase();
+        case 3: /* ToUpper */
+            return String.fromCharCode(param1).toUpperCase();
+        case 4: /* Channel */
+            instance._outputBuffer.set_channel(param1);
+            return 0;
+        case 5: /* ReadKey */
+            instance.trigger('ready', [instance._outputBuffer.flush()]);
+            instance.trigger('readkey');
+            return 0;
+        case 6: /* SetVeneer */
+            // N.B. this is a nop in quixe since opcodes are already
+            // converted into javascript.
+            return 0;
+        case 7: /* RequestTransition */
+            instance.trigger('transition');
+            return 0;
+        default:
+            throw('Unrecognized FyreVM system call #' + operands[0]);
     }
 }
 
@@ -3487,7 +3527,7 @@ function compile_path(vmfunc, startaddr, startiosys) {
         }
 
         /* Now we have an opcode number. */
-        ;;;context.code.push("// " + opcodecp.toString(16) + ": opcode " + opcode.toString(16)); //debug
+        ;;;context.code.push("// " + opcodecp.toString(16) + ": opcode 0x" + opcode.toString(16)); //debug
 
         /* Fetch the structure that describes how the operands for this
            opcode are arranged. This is a pointer to an immutable, 
@@ -4548,10 +4588,13 @@ function stream_string(nextcp, addr, inmiddle, bitnum) {
             strings_compiled++; //###stats
         }
 
-        //qlog("### strop(" + addrkey + (substring?":[sub]":"") + "): " + strop);
+        qlog("### strop(" + addrkey + (substring?":[sub]":"") + "): " + strop);
     
         if (!(strop instanceof Function)) {
-            Glk.glk_put_jstring(strop);
+            if (iosysmode === 20)
+                instance._outputBuffer.write(strop);
+            else
+                Glk.glk_put_jstring(strop);
             if (!substring)
                 return false;
         }
@@ -4705,6 +4748,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
                 case 0x02: /* single character */
                 case 0x04: /* single Unicode character */
                     switch (curiosys) {
+                    case 20: /* channels */
                     case 2: /* glk */
                         context.buffer.push(cab.cchar);
                         break;
@@ -4722,6 +4766,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
                     break;
                 case 0x03: /* C string */
                     switch (curiosys) {
+                    case 20: /* channels */
                     case 2: /* glk */
                         tmpaddr = cab.addr;
                         while (true) {
@@ -4744,6 +4789,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
                     break;
                 case 0x05: /* C Unicode string */
                     switch (curiosys) {
+                    case 20: /* channels */
                     case 2: /* glk */
                         tmpaddr = cab.addr;
                         while (true) {
@@ -4847,6 +4893,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
                 case 0x02: /* single character */
                     ch = Mem1(node);
                     switch (curiosys) {
+                    case 20: /* channels */
                     case 2: /* glk */
                         context.buffer.push(CharToString(ch));
                         break;
@@ -4865,6 +4912,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
                 case 0x04: /* single Unicode character */
                     ch = Mem4(node);
                     switch (curiosys) {
+                    case 20: /* channels */
                     case 2: /* glk */
                         context.buffer.push(CharToString(ch));
                         break;
@@ -4882,6 +4930,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
                     break;
                 case 0x03: /* C string */
                     switch (curiosys) {
+                    case 20: /* channels */
                     case 2: /* glk */
                         while (true) {
                             ch = Mem1(node);
@@ -4903,6 +4952,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
                     break;
                 case 0x05: /* C Unicode string */
                     switch (curiosys) {
+                    case 20: /* channels */
                     case 2: /* glk */
                         while (true) {
                             ch = Mem4(node);
@@ -4969,6 +5019,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
     else if (type == 0xE0) {
         var ch;
         switch (curiosys) {
+        case 20: /* channels */
         case 2: /* glk */
             while (1) {
                 ch = Mem1(addr);
@@ -4998,6 +5049,7 @@ function compile_string(curiosys, startaddr, inmiddle, startbitnum) {
     else if (type == 0xE2) {
         var ch;
         switch (curiosys) {
+        case 20: /* channels */
         case 2: /* glk */
             while (1) {
                 ch = Mem4(addr);
