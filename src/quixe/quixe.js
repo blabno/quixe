@@ -62,7 +62,44 @@
 
 /* Put everything inside the Quixe namespace. */
 
-Quixe = function() {
+Quixe = (function() {
+
+function OutputBuffer() {
+    this._channelData = {};
+    this._channel = ('M' << 24) | ('A' << 16) | ('I' << 8) | 'N';
+    this._channelData[this._channel] = '';
+    this.get_channel = function() {
+        return this._channel;
+    }
+    this.set_channel = function(channel) {
+        this._channelData[channel] = '';
+        this._channel = channel;
+    }
+    this.write = function(s) {
+        this._channelData[this._channel] += s;
+    }
+    this.flush = function() {
+        var result = {};
+
+        for (var x in this._channelData) {
+            if (this._channelData[x].length > 0) {
+                result[this.get_channel_name(x)] = this._channelData[x];
+                this._channelData[x] = '';
+            }
+        }
+
+        return result;
+    }
+    this.get_channel_name = function(channel) {
+        return (String.fromCharCode(channel >> 24) & 0xff) 
+            + (String.fromCharCode(channel >> 16) & 0xff) 
+            + (String.fromCharCode(channel >> 8) & 0xff) 
+            + (String.fromCharCode(channel) & 0xff);
+    }
+}
+
+var instance = Object.clone(EventEmitter.prototype);
+instance._outputBuffer = new OutputBuffer();
 
 /* This is called by the page (or the page's loader library) when it
    starts up. It must be called before quixe_init().
@@ -742,6 +779,7 @@ function VMTextEnv(addr, dectab) {
         this.vmstring_tables[0] = {};
         this.vmstring_tables[1] = {};
         this.vmstring_tables[2] = {};
+        this.vmstring_tables[20] = {};
     }
 }
 
@@ -764,6 +802,7 @@ function setup_operandlist_table() {
     var list_LLLL = new OperandList("LLLL");
     var list_LS = new OperandList("LS");
     var list_LLS = new OperandList("LLS");
+    var list_LLLS = new OperandList("LLLS");
     var list_LLLLLLS = new OperandList("LLLLLLS");
     var list_LLLLLLLS = new OperandList("LLLLLLLS");
     var list_LLSS = new OperandList("LLSS");
@@ -900,7 +939,8 @@ function setup_operandlist_table() {
         0x1C4: list_LLL, /* jfgt */
         0x1C5: list_LLL, /* jfge */
         0x1C8: list_LL, /* jisnan */
-        0x1C9: list_LL  /* jisinf */
+        0x1C9: list_LL,  /* jisinf */
+        0x1000: list_LLLS /* fyrecall */
     }
 }
 
@@ -2563,6 +2603,41 @@ var opcode_table = {
             context.code.push("}");
         }
         oputil_store(context, operands[2], "glkret");
+    },
+
+    0x1000: function(context, operands) { /* fyrecall */
+        switch(operands[0]) {
+            case 1: /* ReadLine */
+                context.code.push("instance.trigger('ready', [instance._outputBuffer.flush()];");
+                context.code.push("instance.trigger('readline');");
+                break;
+            case 2: /* ToLower */
+                context.code.varsused["fvm1"];
+                context.code.push("fvm1 = String.fromCharCode(" + operands[1] + ");");
+                context.code.push(operands[2] + "fvm1.toLowerCase());");
+                break;
+            case 3: /* ToUpper */
+                context.code.varsused["fvm1"];
+                context.code.push("fvm1 = String.fromCharCode(" + operands[1] + ");");
+                context.code.push(operands[2] + "fvm1.toUpperCase());");
+                break;
+            case 4: /* Channel */
+                context.code.push("instance._outputBuffer.set_channel(" + operands[1] + ");");
+                break;
+            case 5: /* ReadKey */
+                context.code.push("instance.trigger('ready', [instance._outputBuffer.flush()];");
+                context.code.push("instance.trigger('readkey');");
+                break;
+            case 6: /* SetVeneer */
+                // N.B. this is a nop in quixe since opcodes are already
+                // converted into javascript.
+                break;
+            case 7: /* RequestTransition */
+                context.code.push("instance.emitEvent('transition');");
+                break;
+            default:
+                throw('Unrecognized FyreVM system call #' + operands[0]);
+        }
     }
 }
 
@@ -4278,6 +4353,9 @@ function set_iosys(mode, rock) {
     case 2: /* glk */
         rock = 0;
         break;
+    case 20: /* channels */
+        rock = 0;
+        break;
     default: /* pretend it's null */
         mode = 0;
         rock = 0;
@@ -4992,6 +5070,8 @@ function do_gestalt(val, val2) {
             return 1; /* The "filter" system always works. */
         case 2:
             return 1; /* A Glk library is hooked up. */
+        case 20:
+            return 1; /* A Channels library is hooked up. */
         default:
             return 0;
         }
@@ -6316,24 +6396,23 @@ function execute_loop() {
 
 /* End of Quixe namespace function. Return the object which will
    become the Quixe global. */
-return {
-    version: '1.3.1', /* Quixe version */
-    prepare: quixe_prepare,
-    init: quixe_init,
-    resume: quixe_resume,
-    get_signature: quixe_get_signature,
-    get_statistics: quixe_get_statistics,
-    get_debuginfo: quixe_get_debuginfo,
+instance.version = '1.3.1'; /* Quixe version */
+instance.prepare = quixe_prepare;
+instance.init = quixe_init;
+instance.resume = quixe_resume;
+instance.get_signature = quixe_get_signature;
+instance.get_statistics = quixe_get_statistics;
+instance.get_debuginfo = quixe_get_debuginfo;
+instance.ReadByte = ReadArgByte;
+instance.WriteByte = WriteArgByte;
+instance.ReadWord = ReadArgWord;
+instance.WriteWord = WriteArgWord;
+instance.ReadStructField = ReadStructField;
+instance.WriteStructField = WriteStructField;
+instance.SetResumeStore = SetResumeStore;
 
-    ReadByte: ReadArgByte,
-    WriteByte: WriteArgByte,
-    ReadWord: ReadArgWord,
-    WriteWord: WriteArgWord,
-    ReadStructField: ReadStructField,
-    WriteStructField: WriteStructField,
-    SetResumeStore: SetResumeStore
-};
+return instance;
 
-}();
+})();
 
 /* End of Quixe library. */
