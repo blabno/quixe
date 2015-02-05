@@ -66,7 +66,10 @@ Quixe = (function() {
 
 function OutputBuffer() {
     this._channelData = {};
-    this._channel = ('M' << 24) | ('A' << 16) | ('I' << 8) | 'N';
+    this._channel = ('M'.charCodeAt(0) << 24) 
+        | ('A'.charCodeAt(0) << 16) 
+        | ('I'.charCodeAt(0) << 8) 
+        | 'N'.charCodeAt(0);
     //qlog('### set default channel');
     this._channelData[this._channel] = '';
     this.get_channel = function() {
@@ -6466,7 +6469,7 @@ instance.ReadStructField = ReadStructField;
 instance.WriteStructField = WriteStructField;
 instance.SetResumeStore = SetResumeStore;
 instance.readline_resume = function (line) {
-    console.log('### ReadLine callback = ' + line);
+    qlog('### ReadLine callback = ' + line);
     if (line === null)
         MemW4(resumevalue.addr, 0);
     else {
@@ -6474,10 +6477,12 @@ instance.readline_resume = function (line) {
         for (var i=0; i < line.length; i++)
             MemW4(resumevalue.addr + 4 + i, line.charAt(i));
     }
+    resumevalue = null;
     quixe_resume();
 };
 instance.readkey_resume = function (key) {
-    console.log('### ReadKey callback = ' + key);
+    qlog('### ReadKey callback = ' + key);
+    resumevalue = null;
     quixe_resume();
 };
 
