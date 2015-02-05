@@ -67,26 +67,26 @@ Quixe = (function() {
 function OutputBuffer() {
     this._channelData = {};
     this._channel = ('M' << 24) | ('A' << 16) | ('I' << 8) | 'N';
-    qlog('### set default channel');
+    //qlog('### set default channel');
     this._channelData[this._channel] = '';
     this.get_channel = function() {
-        qlog('OutputBuffer.get_channel');
+        //qlog('OutputBuffer.get_channel');
         return this._channel;
     }
     this.set_channel = function(channel) {
-        qlog('OutputBuffer.set_channel = ' + this.get_channel_name(channel));
+        //qlog('OutputBuffer.set_channel = ' + this.get_channel_name(channel));
         this._channelData[channel] = '';
         this._channel = channel;
     }
     this.write = function(s) {
-        qlog('OutputBuffer.write');
+        //qlog('OutputBuffer.write');
         if (s instanceof Number)
             this._channelData[this._channel] += String.fromCharCode(s);
         else
             this._channelData[this._channel] += s;
     }
     this.flush = function() {
-        qlog('OutputBuffer.flush');
+        //qlog('OutputBuffer.flush');
         var result = {};
 
         for (var x in this._channelData) {
@@ -96,7 +96,7 @@ function OutputBuffer() {
             }
         }
 
-        qlog('result = ' + JSON.stringify(result));
+        //qlog('result = ' + JSON.stringify(result));
         return result;
     }
     this.get_channel_name = function(channel) {
@@ -2648,26 +2648,29 @@ var opcode_table = {
     },
 
     0x1000: function(context, operands) { /* fyrecall */
-        context.code.push(operands[3] + "do_fyrecall(" + operands[0] + ", " + operands[1] + ", " + operands[2] + "));");
+        context.code.push(operands[3] + "do_fyrecall(" + operands[0] + ", " + operands[1] + ", " + operands[2] + ", " + context.cp + "));");
     }
 }
 
-function do_fyrecall(mode, param1, param2) {
+function do_fyrecall(mode, param1, param2, cp) {
     switch(mode) {
         case 1: /* ReadLine */
+        case 5: /* ReadKey */
+            pc = cp;
+            done_executing = true;
+            resumefuncop = null;
+            resumevalue = { addr: param1, len: param2 };
             instance.trigger('ready', [instance._outputBuffer.flush()]);
-            instance.trigger('readline', [param1, param2]);
+            instance.trigger(mode === 1 ? 'readline' : 'readkey');
             return 0;
         case 2: /* ToLower */
+            if (param1 === 0) return 0;
             return String.fromCharCode(param1).toLowerCase();
         case 3: /* ToUpper */
+            if (param1 === 0) return 0;
             return String.fromCharCode(param1).toUpperCase();
         case 4: /* Channel */
             instance._outputBuffer.set_channel(param1);
-            return 0;
-        case 5: /* ReadKey */
-            instance.trigger('ready', [instance._outputBuffer.flush()]);
-            instance.trigger('readkey');
             return 0;
         case 6: /* SetVeneer */
             // N.B. this is a nop in quixe since opcodes are already
@@ -4588,7 +4591,7 @@ function stream_string(nextcp, addr, inmiddle, bitnum) {
             strings_compiled++; //###stats
         }
 
-        qlog("### strop(" + addrkey + (substring?":[sub]":"") + "): " + strop);
+        //qlog("### strop(" + addrkey + (substring?":[sub]":"") + "): " + strop);
     
         if (!(strop instanceof Function)) {
             if (iosysmode === 20)
@@ -6462,6 +6465,21 @@ instance.WriteWord = WriteArgWord;
 instance.ReadStructField = ReadStructField;
 instance.WriteStructField = WriteStructField;
 instance.SetResumeStore = SetResumeStore;
+instance.readline_resume = function (line) {
+    console.log('### ReadLine callback = ' + line);
+    if (line === null)
+        MemW4(resumevalue.addr, 0);
+    else {
+        MemW4(resumevalue.addr, line.length);
+        for (var i=0; i < line.length; i++)
+            MemW4(resumevalue.addr + 4 + i, line.charAt(i));
+    }
+    quixe_resume();
+};
+instance.readkey_resume = function (key) {
+    console.log('### ReadKey callback = ' + key);
+    quixe_resume();
+};
 
 return instance;
 
