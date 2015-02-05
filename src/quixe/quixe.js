@@ -2672,10 +2672,10 @@ function do_fyrecall(mode, param1, param2, cp) {
             return 0;
         case 2: /* ToLower */
             if (param1 === 0) return 0;
-            return String.fromCharCode(param1).toLowerCase();
+            return String.fromCharCode(param1).toLowerCase().charCodeAt(0);
         case 3: /* ToUpper */
             if (param1 === 0) return 0;
-            return String.fromCharCode(param1).toUpperCase();
+            return String.fromCharCode(param1).toUpperCase().charCodeAt(0);
         case 4: /* Channel */
             instance._outputBuffer.set_channel(param1);
             return 0;
@@ -6479,7 +6479,7 @@ instance.readline_resume = function (line) {
     else {
         MemW4(resumevalue.addr, line.length);
         for (var i=0; i < line.length; i++)
-            MemW1(resumevalue.addr + 4 + i, line.charAt(i));
+            MemW1(resumevalue.addr + 4 + i, line.charCodeAt(i));
     }
     resumevalue = null;
     quixe_resume();
