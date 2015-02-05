@@ -77,7 +77,7 @@ function OutputBuffer() {
         return this._channel;
     }
     this.set_channel = function(channel) {
-        //qlog('OutputBuffer.set_channel = ' + this.get_channel_name(channel));
+        //qlog('OutputBuffer.set_channel = ' + this.get_channel_name(channel));        
         this._channelData[channel] = '';
         this._channel = channel;
     }
@@ -6475,7 +6475,7 @@ instance.readline_resume = function (line) {
     else {
         MemW4(resumevalue.addr, line.length);
         for (var i=0; i < line.length; i++)
-            MemW4(resumevalue.addr + 4 + i, line.charAt(i));
+            MemW1(resumevalue.addr + 4 + i, line.charAt(i));
     }
     resumevalue = null;
     quixe_resume();
