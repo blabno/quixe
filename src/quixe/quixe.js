@@ -71,18 +71,23 @@ function OutputBuffer() {
         | ('I'.charCodeAt(0) << 8) 
         | 'N'.charCodeAt(0);
     //qlog('### set default channel');
-    this._channelData[this._channel] = '';
+    //this._channelData[this._channel] = '';
     this.get_channel = function() {
         //qlog('OutputBuffer.get_channel');
         return this._channel;
     }
     this.set_channel = function(channel) {
         //qlog('OutputBuffer.set_channel = ' + this.get_channel_name(channel));
-        this._channelData[channel] = '';
+         if (this._channelData[channel] == null)
+			 this._channelData[channel] = '';
         this._channel = channel;
     }
     this.write = function(s) {
         //qlog('OutputBuffer.write');
+		
+		if (this._channelData[this._channel] == undefined)
+			 this._channelData[this._channel] = '';
+		
         if (s instanceof Number)
             this._channelData[this._channel] += String.fromCharCode(s);
         else
