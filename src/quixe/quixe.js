@@ -90,6 +90,10 @@ function OutputBuffer() {
         if (s instanceof Number)
             this._channelData[this._channel] += String.fromCharCode(s);
         else
+			if (s == '10')
+				s = "\n";
+			if (s == '13')
+				s = "\r";
             this._channelData[this._channel] += s;
     }
     this.flush = function() {
