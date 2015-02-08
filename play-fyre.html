@@ -87,10 +87,16 @@ This should not be visible
       jQuery('#readline').val('');
     });
 
+    Quixe.on('readkey', function() {
+      jQuery(document).keypress(function(event) {
+        Quixe.readkey_resume(event.which);
+      });
+    });
+
     jQuery('#readline').keypress(function(event) {
       if (event.which === 13)
         Quixe.readline_resume(jQuery('#readline').val());
-    });
+    });  
   });
 </script>
 

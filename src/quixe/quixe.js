@@ -2669,8 +2669,14 @@ function do_fyrecall(mode, param1, param2, cp) {
         case 5: /* ReadKey */
             pc = cp;
             done_executing = true;
-            resumefuncop = null;
-            resumevalue = { addr: param1, len: param2 };
+            if (mode == 1) {
+                resumefuncop = null;        
+                resumevalue = { addr: param1, len: param2 };
+            }
+            else {
+                resumefuncop = oputil_record_funcop(operands[3]);
+                resumevalue = null;
+            }
             instance.trigger('ready', [instance._outputBuffer.flush()]);
             instance.trigger(mode === 1 ? 'readline' : 'readkey');
             return 0;
@@ -6490,7 +6496,7 @@ instance.readline_resume = function (line) {
 };
 instance.readkey_resume = function (key) {
     qlog('### ReadKey callback = ' + key);
-    resumevalue = null;
+    resumevalue = key;
     quixe_resume();
 };
 
