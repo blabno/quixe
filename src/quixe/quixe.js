@@ -2679,6 +2679,7 @@ function do_fyrecall(mode, param1, param2, cp) {
             }
             instance.trigger('ready', [instance._outputBuffer.flush()]);
             instance.trigger(mode === 1 ? 'readline' : 'readkey');
+            instance.trigger('snapshot', [vm_createsnapshot()]);
             return 0;
         case 2: /* ToLower */
             if (param1 === 0) return 0;
@@ -5899,13 +5900,12 @@ function vm_restore(streamid) {
     return true;
 }
 
-/* Pushes a snapshot of the VM state onto the undo stack. If there are too
-   many on the stack, throw away the oldest.
+/* Create a snapshot of the VM state.
 */
-function vm_saveundo() {
-    ;;;if (memmap.length != endmem) {
-    ;;;    fatal_error("Memory length was incorrect before saveundo."); //assert
-    ;;;}
+function vm_createsnapshot() {
+    if (memmap.length != endmem) {
+        fatal_error("Memory length was incorrect before saveundo."); //assert
+    }
 
     var snapshot = {};
     snapshot.ram = memmap.slice(ramstart);
@@ -5920,6 +5920,14 @@ function vm_saveundo() {
     snapshot.usedlist = usedlist.slice(0);
     snapshot.freelist = freelist.slice(0);
 
+    return snapshot;
+}
+
+/* Pushes a snapshot of the VM state onto the undo stack. If there are too
+   many on the stack, throw away the oldest.
+*/
+function vm_saveundo() {
+    var snapshot = vm_createsnapshot();
     undostack.push(snapshot);
     if (undostack.length > 10) {
         undostack.shift();
@@ -5934,6 +5942,16 @@ function vm_restoreundo() {
         return false;
     }
     var snapshot = undostack.pop();
+    return vm_restoresnapshot(snapshot);
+}
+
+/* Restore VM state snapshot.
+   Returns true on success.
+*/
+function vm_restoresnapshot(snapshot) {
+    if (!snapshot)
+        return false;
+
     var protect = copy_protected_range();
 
     memmap = memmap.slice(0, ramstart).concat(snapshot.ram);
@@ -5948,10 +5966,11 @@ function vm_restoreundo() {
     
     paste_protected_range(protect);
 
-    ;;;if (memmap.length != endmem) {
-    ;;;    fatal_error("Memory length was incorrect after undo."); //assert
-    ;;;}
-    ;;;assert_heap_valid(); //assert
+    if (memmap.length != endmem) {
+        fatal_error("Memory length was incorrect after snapshot restore."); //assert
+    }
+
+    assert_heap_valid(); //assert
 
     return true;
 }
@@ -6500,6 +6519,7 @@ instance.readkey_resume = function (key) {
     resumevalue = key;
     quixe_resume();
 };
+instance.restore_snapshot = vm_restoresnapshot;
 
 return instance;
 

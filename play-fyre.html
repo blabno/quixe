@@ -89,8 +89,13 @@ This should not be visible
 
     Quixe.on('readkey', function() {
       jQuery(document).keypress(function(event) {
+        jQuery(document).unbind('keypress'); // must do this or we get conflicts!
         Quixe.readkey_resume(event.which);
       });
+    });
+
+    Quixe.on('snapshot', function(snapshot) {
+      //console.log('### snapshot = ' + JSON.stringify(snapshot));
     });
 
     jQuery('#readline').keypress(function(event) {
