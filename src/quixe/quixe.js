@@ -2674,7 +2674,7 @@ function do_fyrecall(mode, param1, param2, cp) {
                 resumevalue = { addr: param1, len: param2 };
             }
             else {
-                resumefuncop = oputil_record_funcop(operands[3]);
+                resumefuncop = null;
                 resumevalue = null;
             }
             instance.trigger('ready', [instance._outputBuffer.flush()]);
@@ -6496,6 +6496,7 @@ instance.readline_resume = function (line) {
 };
 instance.readkey_resume = function (key) {
     qlog('### ReadKey callback = ' + key);
+    resumefuncop = { mode: 8 };
     resumevalue = key;
     quixe_resume();
 };
