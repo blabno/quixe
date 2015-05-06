@@ -22,7 +22,7 @@
 {
     'use strict';
 
-    function giDispa() {
+    function giDispa(glk_value) {
 
         //### Should split WriteWord into a WriteRefWord and WriteArrayWord,
         //### with different handling of -1. Etc.
@@ -492,7 +492,8 @@
                 retarg = form.retarg.arg;
 
             /* If this is true, the call might return DidNotReturn. */
-            mayblock = Glk.call_may_not_return(func.id);
+            //mayblock = $glk.call_may_not_return(func.id);
+            mayblock = glk_value.call_may_not_return(func.id);
 
             /* Load the argument values into local variables, for use in the
              call. For array, struct, and reference arguments, we also need
@@ -523,13 +524,13 @@
                     if ((refarg instanceof ArgInt)
                             || (refarg instanceof ArgChar)
                             || (refarg instanceof ArgClass)) {
-                        out.push('  '+tmpvar+' = new Glk.RefBox();');
+                        out.push('  '+tmpvar+' = new $glk.RefBox();');
                         val = convert_arg(refarg, arg.passin, 'VM.ReadWord(callargs['+argpos+'])');
                         out.push('  '+tmpvar+'.set_value('+val+');');
                     }
                     else if (refarg instanceof ArgStruct) {
                         subargs = refarg.form.args;
-                        out.push('  '+tmpvar+' = new Glk.RefStruct('+subargs.length+');');
+                        out.push('  '+tmpvar+' = new $glk.RefStruct('+subargs.length+');');
                         for (jx=0; jx<subargs.length; jx++) {
                             val = convert_arg(subargs[jx], arg.passin, 'VM.ReadStructField(callargs['+argpos+'], '+jx+')');
                             out.push('  '+tmpvar+'.push_field('+val+');');
@@ -589,7 +590,7 @@
                     out.push('  if (ix == 0) break;');
                     out.push('  '+tmpvar+'.push(ix);');
                     out.push('}');
-                    out.push(tmpvar+' = Glk.'+confunc+'('+tmpvar+');');
+                    out.push(tmpvar+' = $glk.'+confunc+'('+tmpvar+');');
                     argpos += 1;
                 }
                 else {
@@ -608,12 +609,12 @@
             else {
                 retval = '';
             }
-            out.push(retval + 'Glk.glk_' + func.name + '(' + argjoin.join(', ') + ');');
+            out.push(retval + '$glk.glk_' + func.name + '(' + argjoin.join(', ') + ');');
 
             if (mayblock) {
                 /* If the call blocks, we need to stash away the arguments and
                  then return early. */
-                out.push('if (glkret === Glk.DidNotReturn) {');
+                out.push('if (glkret === $glk.DidNotReturn) {');
                 out.push('  set_blocked_selector(' + func.id + ', callargs);');
                 out.push('  return glkret;');
                 out.push('}');
@@ -933,7 +934,7 @@
     }
 
 
-    angular.module('quixeApp').factory('$giDispa', giDispa);
+    angular.module('quixeApp').factory('$giDispa', ['glk_value', giDispa]);
 
 })();
 

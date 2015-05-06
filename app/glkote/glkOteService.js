@@ -44,7 +44,7 @@
 {
     'use strict';
 
-    function GlkOte( $dialog ) {
+    function GlkOte( $dialog, glkote_value ) {
 
       /* Module global variables */
       var game_interface = null;
@@ -99,6 +99,7 @@
           return;
         }
         game_interface = iface;
+        glkote_value.interface = glkote_get_interface;
 
         if (!window.Prototype) {
           glkote_error('The Prototype library has not been loaded.');
@@ -1010,7 +1011,7 @@
             $dialog.open(writable, arg.filetype, arg.gameid, replyfunc);
           }
           catch (ex) {
-            GlkOte.log('Unable to open file dialog: ' + ex);
+            glkote_log('Unable to open file dialog: ' + ex);
             /* Return a failure. But we don't want to call send_response before
              glkote_update has finished, so we defer the reply slightly. */
             replyfunc.defer(null);
@@ -1880,5 +1881,5 @@
 
 }
 
-    angular.module('quixeApp').factory('$glkOte', ['$dialog', GlkOte]);
+    angular.module('quixeApp').factory('$glkOte', ['$dialog', 'glkote_value', GlkOte]);
 })();

@@ -71,7 +71,7 @@
 /* Put everything inside the GiLoad namespace. */
 (function() {
 
-    function giLoad( $quixe )
+    function giLoad( $quixe, $glkOte, $glk, game_options, giload_value )
     {
 
         /* Start with the defaults. These can be modified later by the game_options
@@ -108,9 +108,9 @@
             all_options.io = $glk;
 
             if (!optobj)
-                optobj = window.game_options;
+                optobj = game_options;
             if (optobj)
-                Object.extend(all_options, optobj); /* Prototype-ism */
+                angular.extend(all_options, optobj); /* Prototype-ism */
 
             /* The first question is, what's the game file URL? */
 
@@ -540,6 +540,8 @@
             all_options.io.init(all_options);
         }
 
+        giload_value.datachunks = find_data_chunk;
+
         /* End of GiLoad namespace function. Return the object which will
            become the GiLoad global. */
         return {
@@ -549,7 +551,7 @@
 
     }
 
-    angular.module('quixeApp').factory('$giLoad', [ '$quixe', giLoad ] );
+    angular.module('quixeApp').factory('$giLoad', [ '$quixe', '$glkOte', '$glk', 'game_options', 'giload_value', giLoad ] );
 
 })();
 

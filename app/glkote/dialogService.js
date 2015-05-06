@@ -61,7 +61,7 @@
 {
     'use strict';
 
-    function Dialog($glkOte) {
+    function Dialog($window, $rootScope, glkote_value) {
 
         var dialog_el_id = 'dialog';
 
@@ -115,7 +115,8 @@
             var root_el_id = 'windowport';
             var iface = window.Game;
             //if (window.GlkOte)
-                iface = $glkOte.getinterface();
+            //    iface = $glkOte.getinterface();
+                iface = glkote_value.interface();
             if (iface && iface.windowport)
                 root_el_id = iface.windowport;
 
@@ -909,6 +910,7 @@
         function file_remove_ref(ref) {
             localStorage.removeItem(ref.dirent);
             localStorage.removeItem(ref.content);
+            $rootScope.$emit( 'storage' );
         }
 
         /* Dialog.file_write(dirent, content, israw) -- write data to the file
@@ -948,6 +950,7 @@
             val = ls.join(',');
             localStorage.setItem(file.dirent.dirent, val);
             localStorage.setItem(file.dirent.content, content);
+            $rootScope.$emit( 'storage' );
 
             return true;
         }
@@ -1045,23 +1048,27 @@
          JSON.stringify() and JSON.parse(), except not all browsers support those.
          */
 
-        if (window.JSON) {
-            function encode_array(arr) {
-                var res = JSON.stringify(arr);
-                var len = res.length;
-                /* Safari's JSON quotes arrays for some reason; we need to strip
-                 the quotes off. */
-                if (res[0] == '"' && res[len-1] == '"')
-                    res = res.slice(1, len-1);
-                return res;
+        function encode_array(arr) {
+
+            if (!window.JSON) { /* Not-very-safe substitutes for JSON in old browsers. */
+                return '[' + arr + ']';
             }
-            function decode_array(val) { return JSON.parse(val); }
+            var res = JSON.stringify(arr);
+            var len = res.length;
+            /* Safari's JSON quotes arrays for some reason; we need to strip
+             the quotes off. */
+            if (res[0] == '"' && res[len-1] == '"')
+                res = res.slice(1, len-1);
+            return res;
         }
-        else {
-            /* Not-very-safe substitutes for JSON in old browsers. */
-            function encode_array(arr) { return '[' + arr + ']'; }
-            function decode_array(val) { return eval(val); }
+        function decode_array(val) {
+
+            if (!window.JSON) { /* Not-very-safe substitutes for JSON in old browsers. */
+                return eval(val);
+            }
+            return JSON.parse(val);
         }
+
 
         /* Locate the storage object, and set up the storage event handler, at load
          time (but after all the handlers are defined).
@@ -1098,12 +1105,14 @@
                         localStorage.length = localStorage.keys.length;
                     }
                     localStorage.data[key] = val;
+                    $rootScope.$emit( 'storage' );
                 },
                 removeItem: function(key) {
                     if (localStorage.keys.indexOf(key) >= 0) {
                         localStorage.keys = localStorage.keys.without(key);
                         localStorage.length = localStorage.keys.length;
                         delete localStorage.data[key];
+                        $rootScope.$emit( 'storage' );
                     }
                 },
                 key: function(index) {
@@ -1113,11 +1122,13 @@
                     localStorage.data = {};
                     localStorage.keys = [];
                     localStorage.length = 0;
+                    $rootScope.$emit( 'storage' );
                 }
             }
         }
 
-        Event.observe(window, 'storage', evhan_storage_changed); // prototype-ism
+        $rootScope.$on( 'storage', evhan_storage_changed );
+        //$window.observe(window, 'storage', evhan_storage_changed); // prototype-ism
 
         /* End of Dialog namespace function. Return the object which will
          become the Dialog global. */
@@ -1133,7 +1144,7 @@
 
     }
 
-    angular.module('quixeApp').factory('$dialog', ['$glkOte', Dialog]);
+    angular.module('quixeApp').factory('$dialog', ['$window', '$rootScope', 'glkote_value', Dialog]);
 
 })();
 

@@ -64,7 +64,7 @@
 
 (function() {
 
-    function quixe($giDispa, $giLoad)
+    function quixe($eventEmiter, $glk, $giDispa, giload_value)
     {
         function OutputBuffer() {
             this._channelData = {};
@@ -124,7 +124,9 @@
             }
         }
 
-        var instance = Object.clone(EventEmitter.prototype);
+        var instance = angular.copy($eventEmiter, {});
+        //console.log(Object);
+        //var instance = Object.clone($eventEmiter);
         instance._outputBuffer = new OutputBuffer();
 
         /* This is called by the page (or the page's loader library) when it
@@ -170,7 +172,7 @@
          */
         function quixe_init() {
             if (vm_started) {
-                Glk.fatal_error("Quixe was inited twice!");
+                $glk.fatal_error("Quixe was inited twice!");
                 return;
             }
 
@@ -183,7 +185,7 @@
             }
             catch (ex) {
                 qstackdump();
-                Glk.fatal_error("Quixe init: " + show_exception(ex));
+                $glk.fatal_error("Quixe init: " + show_exception(ex));
                 if (opt_rethrow_exceptions)
                     throw ex;
             }
@@ -200,7 +202,7 @@
             }
             catch (ex) {
                 qstackdump();
-                Glk.fatal_error("Quixe run: " + show_exception(ex));
+                $glk.fatal_error("Quixe run: " + show_exception(ex));
                 if (opt_rethrow_exceptions)
                     throw ex;
             }
@@ -457,10 +459,10 @@
         }
 
         /* GiDispa calls this, right before resuming execution at the end of a
-         blocking Glk call. The value passed in is the result of the Glk
+         blocking $glk call. The value passed in is the result of the $glk
          call, which may have to be stored in a local variable or wherever.
          (This is only really relevant for glk_fileref_create_by_prompt(),
-         since it's the only non-void blocking Glk call.)
+         since it's the only non-void blocking $glk call.)
          */
         function SetResumeStore(val) {
             resumevalue = val;
@@ -1207,7 +1209,7 @@
             var str = context.buffer.join("");
             context.buffer.length = 0;
 
-            context.code.push("Glk.glk_put_jstring("+QuoteEscapeString(str)+");");
+            context.code.push("$glk.glk_put_jstring("+QuoteEscapeString(str)+");");
         }
 
         /* Return the signed equivalent of a value. If it is a high-bit constant, 
@@ -2212,10 +2214,10 @@
                     case 2: /* glk */
                         if (quot_isconstant(operands[0])) {
                             var val = Number(operands[0]) & 0xff;
-                            context.code.push("Glk.glk_put_char("+val+");");
+                            context.code.push("$glk.glk_put_char("+val+");");
                         }
                         else {
-                            context.code.push("Glk.glk_put_char(("+operands[0]+")&0xff);");
+                            context.code.push("$glk.glk_put_char(("+operands[0]+")&0xff);");
                         }
                         break;
                     case 1: /* filter */
@@ -2248,10 +2250,10 @@
                         var sign0 = oputil_signify_operand(context, operands[0]);
                         if (quot_isconstant(operands[0])) {
                             var val = Number(sign0).toString(10);
-                            context.code.push("Glk.glk_put_jstring("+QuoteEscapeString(val)+", true);");
+                            context.code.push("$glk.glk_put_jstring("+QuoteEscapeString(val)+", true);");
                         }
                         else {
-                            context.code.push("Glk.glk_put_jstring(("+sign0+").toString(10), true);");
+                            context.code.push("$glk.glk_put_jstring(("+sign0+").toString(10), true);");
                         }
                         break;
                     case 1: /* filter */
@@ -2292,10 +2294,10 @@
                     case 2: /* glk */
                         if (quot_isconstant(operands[0])) {
                             var val = Number(operands[0]);
-                            context.code.push("Glk.glk_put_char_uni("+val+");");
+                            context.code.push("$glk.glk_put_char_uni("+val+");");
                         }
                         else {
-                            context.code.push("Glk.glk_put_char_uni("+operands[0]+");");
+                            context.code.push("$glk.glk_put_char_uni("+operands[0]+");");
                         }
                         break;
                     case 1: /* filter */
@@ -2619,7 +2621,7 @@
             0x130: function(context, operands) { /* glk */
                 var mayblock;
                 if (quot_isconstant(operands[0]))
-                    mayblock = Glk.call_may_not_return(Number(operands[0]));
+                    mayblock = $glk.call_may_not_return(Number(operands[0]));
                 else
                     mayblock = true;
                 context.code.push("tempglkargs.length = " + operands[1] + ";");
@@ -2649,7 +2651,7 @@
                 context.varsused["glkret"] = true;
                 context.code.push("glkret = $giDispa.get_function("+operands[0]+")(tempglkargs);");
                 if (mayblock) {
-                    context.code.push("if (glkret === Glk.DidNotReturn) {");
+                    context.code.push("if (glkret === $glk.DidNotReturn) {");
                     context.code.push("  resumefuncop = "+oputil_record_funcop(operands[2])+";");
                     context.code.push("  resumevalue = 0;");
                     context.code.push("  pc = "+context.cp+";");
@@ -3948,7 +3950,7 @@
 
                 /* func_1_z__region(obj) */
                 if (accel_func_map[1](argc, argv) != 1) {
-                    Glk.glk_put_jstring("\n[** Programming error: tried to find the \".\" of (something) **]\n");
+                    $glk.glk_put_jstring("\n[** Programming error: tried to find the \".\" of (something) **]\n");
                     return 0;
                 }
 
@@ -4029,7 +4031,7 @@
                     return 0;
 
                 if (!accel_helper_obj_in_class(cla)) {
-                    Glk.glk_put_jstring("\n[** Programming error: tried to apply 'ofclass' with non-class **]\n");
+                    $glk.glk_put_jstring("\n[** Programming error: tried to apply 'ofclass' with non-class **]\n");
                     return 0;
                 }
 
@@ -4063,7 +4065,7 @@
                         return Mem4(accel_params[8] + (4 * id));
                     }
 
-                    Glk.glk_put_jstring("\n[** Programming error: tried to read (something) **]\n");
+                    $glk.glk_put_jstring("\n[** Programming error: tried to read (something) **]\n");
                     return 0;
                 }
 
@@ -4109,7 +4111,7 @@
 
                 /* func_1_z__region(obj) */
                 if (accel_func_map[1](argc, argv) != 1) {
-                    Glk.glk_put_jstring("\n[** Programming error: tried to find the \".\" of (something) **]\n");
+                    $glk.glk_put_jstring("\n[** Programming error: tried to find the \".\" of (something) **]\n");
                     return 0;
                 }
 
@@ -4191,7 +4193,7 @@
                     return 0;
 
                 if (!accel_helper_obj_in_class(cla)) {
-                    Glk.glk_put_jstring("\n[** Programming error: tried to apply 'ofclass' with non-class **]\n");
+                    $glk.glk_put_jstring("\n[** Programming error: tried to apply 'ofclass' with non-class **]\n");
                     return 0;
                 }
 
@@ -4225,7 +4227,7 @@
                         return Mem4(accel_params[8] + (4 * id));
                     }
 
-                    Glk.glk_put_jstring("\n[** Programming error: tried to read (something) **]\n");
+                    $glk.glk_put_jstring("\n[** Programming error: tried to read (something) **]\n");
                     return 0;
                 }
 
@@ -4535,7 +4537,7 @@
                 case 2: /* glk */
                     if (charnum)
                         buf = buf.slice(charnum);
-                    Glk.glk_put_jstring(buf, true);
+                    $glk.glk_put_jstring(buf, true);
                     break;
 
                 case 1: /* filter */
@@ -4617,7 +4619,7 @@
                     if (iosysmode === 20)
                         instance._outputBuffer.write(strop);
                     else
-                        Glk.glk_put_jstring(strop);
+                        $glk.glk_put_jstring(strop);
                     if (!substring)
                         return false;
                 }
@@ -5144,7 +5146,7 @@
                         case 1:
                             return 1; /* The "filter" system always works. */
                         case 2:
-                            return 1; /* A Glk library is hooked up. */
+                            return 1; /* A $glk library is hooked up. */
                         case 20:
                             return 1; /* A Channels library is hooked up. */
                         default:
@@ -5722,7 +5724,7 @@
             return chunks;
         }
 
-        /* Writes a snapshot of the VM state to the given Glk stream. Returns true
+        /* Writes a snapshot of the VM state to the given $glk stream. Returns true
          on success. 
          */
         function vm_save(streamid) {
@@ -5731,7 +5733,7 @@
                 ;;;}
 
             if (iosysmode != 2)
-                fatal_error("Streams are only available in Glk I/O system.");
+                fatal_error("Streams are only available in $glk I/O system.");
 
             var str = $giDispa.class_obj_from_id('stream', streamid);
             if (!str)
@@ -5772,16 +5774,16 @@
 
             var quetzal = pack_iff_chunks({"FORM": payload_bytes})
             //qlog("vm_save: writing " + quetzal.length + " bytes");    
-            Glk.glk_put_buffer_stream(str, quetzal);
+            $glk.glk_put_buffer_stream(str, quetzal);
             return true;
         }
 
-        /* Reads a VM state snapshot from the given Glk stream and restores it.
+        /* Reads a VM state snapshot from the given $glk stream and restores it.
          Returns true on success.
          */
         function vm_restore(streamid) {
             if (iosysmode != 2)
-                fatal_error("Streams are only available in Glk I/O system.");
+                fatal_error("Streams are only available in $glk I/O system.");
 
             var str = $giDispa.class_obj_from_id('stream', streamid);
             if (!str)
@@ -5791,7 +5793,7 @@
             var buffer = new Array(1024);
             var count = 1;
             while (count > 0) {
-                count = Glk.glk_get_buffer_stream(str, buffer);
+                count = $glk.glk_get_buffer_stream(str, buffer);
                 quetzal = quetzal.concat(buffer.slice(0, count));
             }
             //qlog("vm_restore: reading " + quetzal.length + " bytes");
@@ -6265,7 +6267,8 @@
         }
 
         function parse_inform_debug_data(datachunknum) {
-            var el = $giLoad.find_data_chunk(datachunknum);
+            //var el = $giLoad.find_data_chunk(datachunknum);
+            var el = giload_value.datachunks(datachunknum);
             if (!el)
                 return;
             var buf = el.data;
@@ -6428,7 +6431,7 @@
         }
 
         /* Begin executing code, compiling as necessary. When glk_select is invoked,
-         or the game ends, this calls Glk.update() and exits.
+         or the game ends, this calls $glk.update() and exits.
          */
         function execute_loop() {
             var vmfunc, pathtab, path;
@@ -6458,6 +6461,8 @@
                     }
                 }
                 total_path_calls++; //###stats
+                if(total_path_calls==6)
+                console.log('$giDispa.build_function');
                 try {
                     path();
                 }
@@ -6479,10 +6484,10 @@
             if (vm_stopped) {
                 /* If the library resumes us after exiting, we'll call glk_exit()
                  again. That's the library's problem. */
-                Glk.glk_exit();
+                $glk.glk_exit();
             }
 
-            Glk.update();
+            $glk.update();
 
             qlog("### done executing; path time = " + (pathend-pathstart) + " ms");
         }
@@ -6526,7 +6531,7 @@
         return instance;
     }
 
-    angular.module('quixeApp').factory('$quixe', ['$giDispa', '$giLoad', quixe])
+    angular.module('quixeApp').factory('$quixe', ['$eventEmiter', '$glk', '$giDispa', 'giload_value', quixe])
 
 })();
 
