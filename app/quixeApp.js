@@ -7,6 +7,6 @@
         set_page_title: true
     }).value('glkote_value', {})
     .value('giload_value', {})
-    .value('glk_value', {});
+    .value('gidispa_value', {});
 
 })();

@@ -22,7 +22,7 @@
 {
     'use strict';
 
-    function giDispa(glk_value) {
+    function giDispa($glk, gidispa_value) {
 
         //### Should split WriteWord into a WriteRefWord and WriteArrayWord,
         //### with different handling of -1. Etc.
@@ -38,6 +38,7 @@
         function set_vm(vm_api) {
             VM = vm_api;
         }
+        gidispa_value.set_vm = set_vm;
 
         /* A table of the Glk classes, and their index numbers. This is derived from
          gi_dispa.c, although it's too simple to bother auto-generating.
@@ -492,8 +493,7 @@
                 retarg = form.retarg.arg;
 
             /* If this is true, the call might return DidNotReturn. */
-            //mayblock = $glk.call_may_not_return(func.id);
-            mayblock = glk_value.call_may_not_return(func.id);
+            mayblock = $glk.call_may_not_return(func.id);
 
             /* Load the argument values into local variables, for use in the
              call. For array, struct, and reference arguments, we also need
@@ -707,7 +707,9 @@
              return a closure inside the GiDispa environment. (All the generated
              code assumes that it has the internal variables in scope.)
              */
-            eval('function _func(callargs) {\n' + val + '\n}');
+            var _func;
+            val = '_func = function (callargs) {\n' + val + '\n}';
+            eval(val);
             return _func;
         }
 
@@ -772,6 +774,7 @@
             blocked_selector = null;
             blocked_callargs = null;
         }
+        gidispa_value.prepare_resume = prepare_resume;
 
         /* This lists all the array arguments during a Glk call (but not between
          calls). */
@@ -824,6 +827,7 @@
             for (ix=0; !(retained_arrays[ix] === undefined); ix++) { };
             retained_arrays[ix] = obj;
         }
+        gidispa_value.retain_array = retain_array;
 
         /* Unretain one array; write its contents back into memory. (We take for
          granted that a retained array is always pass-out.)
@@ -868,6 +872,7 @@
                 throw('unretain_array: unsupported refarg type');
             }
         }
+        gidispa_value.unretain_array = unretain_array;
 
         /* Table of tables of registered Glk objects. class_map['window'] is the
          table of windows, and so on.
@@ -890,6 +895,7 @@
 
             class_map[clas][obj.disprock] = obj;
         }
+        gidispa_value.class_register = class_register;
 
         /* Note a just-destroyed Glk object.
          */
@@ -900,6 +906,7 @@
             delete class_map[clas][obj.disprock];
             obj.disprock = undefined;
         }
+        gidispa_value.class_unregister = class_unregister;
 
         /* This is called as soon as the GiDispa module is loaded. It sets up some
          internal tables. This does not rely on any other module.
@@ -934,7 +941,7 @@
     }
 
 
-    angular.module('quixeApp').factory('$giDispa', ['glk_value', giDispa]);
+    angular.module('quixeApp').factory('$giDispa', ['$glk', 'gidispa_value', giDispa]);
 
 })();
 

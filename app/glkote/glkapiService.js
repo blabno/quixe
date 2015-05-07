@@ -47,7 +47,7 @@
 
 (function() {
 
-    function Glk($dialog, $glkOte, $giDispa, giload_value, glk_value)
+    function Glk($dialog, $glkOte, gidispa_value, giload_value)
     {
         /* The VM interface object. */
         var VM = null;
@@ -77,7 +77,7 @@
         function init(vm_options) {
             VM = vm_options.vm;
             //if (window.GiDispa)
-                $giDispa.set_vm(VM);
+                gidispa_value.set_vm(VM);
 
             vm_options.accept = accept_ui_event;
 
@@ -160,7 +160,7 @@
             gli_selectref.set_field(3, 0);
 
             //if (window.GiDispa)
-                $giDispa.prepare_resume(gli_selectref);
+                gidispa_value.prepare_resume(gli_selectref);
             gli_selectref = null;
             VM.resume();
         }
@@ -175,7 +175,7 @@
             gli_selectref.set_field(3, 0);
 
             //if (window.GiDispa)
-                $giDispa.prepare_resume(gli_selectref);
+                gidispa_value.prepare_resume(gli_selectref);
             gli_selectref = null;
             VM.resume();
         }
@@ -200,7 +200,7 @@
             win.hyperlink_request = false;
 
             //if (window.GiDispa)
-                $giDispa.prepare_resume(gli_selectref);
+                gidispa_value.prepare_resume(gli_selectref);
             gli_selectref = null;
             VM.resume();
         }
@@ -240,7 +240,7 @@
             win.input_generation = null;
 
             //if (window.GiDispa)
-                $giDispa.prepare_resume(gli_selectref);
+                gidispa_value.prepare_resume(gli_selectref);
             gli_selectref = null;
             VM.resume();
         }
@@ -287,7 +287,7 @@
             gli_selectref.set_field(3, termcode);
 
             //if (window.GiDispa)
-                $giDispa.unretain_array(win.linebuf);
+                gidispa_value.unretain_array(win.linebuf);
             win.line_request = false;
             win.line_request_uni = false;
             win.request_echo_line_input = null;
@@ -295,7 +295,7 @@
             win.linebuf = null;
 
             //if (window.GiDispa)
-                $giDispa.prepare_resume(gli_selectref);
+                gidispa_value.prepare_resume(gli_selectref);
             gli_selectref = null;
             VM.resume();
         }
@@ -2007,8 +2007,6 @@
                 return false;
         }
 
-        glk_value.call_may_not_return = call_may_not_return;
-
         var strtype_File = 1;
         var strtype_Window = 2;
         var strtype_Memory = 3;
@@ -2077,7 +2075,7 @@
                 win.next.prev = win;
 
             //if (window.GiDispa)
-                $giDispa.class_register('window', win);
+                gidispa_value.class_register('window', win);
             //else
             //    win.disprock = gli_api_display_rocks++;
             /* We need to assign a disprock even if there's no GiDispa layer,
@@ -2091,7 +2089,7 @@
             var prev, next;
 
             //if (window.GiDispa)
-                $giDispa.class_unregister('window', win);
+                gidispa_value.class_unregister('window', win);
             geometry_changed = true;
 
             win.echostr = null;
@@ -2273,7 +2271,7 @@
 
             //if (window.GiDispa && win.linebuf) {
             if (win.linebuf) {
-                $giDispa.unretain_array(win.linebuf);
+                gidispa_value.unretain_array(win.linebuf);
                 win.linebuf = null;
             }
 
@@ -2480,7 +2478,7 @@
                 str.next.prev = str;
 
             //if (window.GiDispa)
-                $giDispa.class_register('stream', str);
+                gidispa_value.class_register('stream', str);
 
             return str;
         }
@@ -2496,11 +2494,11 @@
 
             if (str.type == strtype_Memory) {
                 //if (window.GiDispa)
-                    $giDispa.unretain_array(str.buf);
+                    gidispa_value.unretain_array(str.buf);
             }
 
             //if (window.GiDispa)
-                $giDispa.class_unregister('stream', str);
+                gidispa_value.class_unregister('stream', str);
 
             prev = str.prev;
             next = str.next;
@@ -2587,7 +2585,7 @@
                 fref.next.prev = fref;
 
             //if (window.GiDispa)
-                $giDispa.class_register('fileref', fref);
+                gidispa_value.class_register('fileref', fref);
 
             return fref;
         }
@@ -2596,7 +2594,7 @@
             var prev, next;
 
             //if (window.GiDispa)
-                $giDispa.class_unregister('fileref', fref);
+                gidispa_value.class_unregister('fileref', fref);
 
             prev = fref.prev;
             next = fref.next;
@@ -3658,7 +3656,7 @@
                 else
                     str.bufeof = str.buflen;
                 //if (window.GiDispa)
-                    $giDispa.retain_array(buf);
+                    gidispa_value.retain_array(buf);
             }
 
             return str;
@@ -3870,7 +3868,7 @@
             ui_specialcallback = null;
 
             //if (window.GiDispa)
-                $giDispa.prepare_resume(fref);
+                gidispa_value.prepare_resume(fref);
             VM.resume();
         }
 
@@ -4060,7 +4058,7 @@
                 win.input_generation = event_generation;
                 win.linebuf = buf;
                 //if (window.GiDispa)
-                    $giDispa.retain_array(buf);
+                    gidispa_value.retain_array(buf);
             }
             else {
                 throw('glk_request_line_event: window does not support keyboard input');
@@ -4116,7 +4114,7 @@
             }
 
             //if (window.GiDispa)
-                $giDispa.unretain_array(win.linebuf);
+                gidispa_value.unretain_array(win.linebuf);
             win.line_request = false;
             win.line_request_uni = false;
             win.request_echo_line_input = null;
@@ -4741,7 +4739,7 @@
                 else
                     str.bufeof = str.buflen;
                 //if (window.GiDispa)
-                    $giDispa.retain_array(buf);
+                    gidispa_value.retain_array(buf);
             }
 
             return str;
@@ -4788,7 +4786,7 @@
                 win.input_generation = event_generation;
                 win.linebuf = buf;
                 //if (window.GiDispa)
-                    $giDispa.retain_array(buf);
+                    gidispa_value.retain_array(buf);
             }
             else {
                 throw('glk_request_line_event: window does not support keyboard input');
@@ -5075,7 +5073,7 @@
         };
     }
 
-    angular.module('quixeApp').factory('$glk', ['$dialog', '$glkOte', '$giDispa', 'giload_value', 'glk_value', Glk]);
+    angular.module('quixeApp').factory('$glk', ['$dialog', '$glkOte', 'gidispa_value', 'giload_value', Glk]);
 
 })();
 

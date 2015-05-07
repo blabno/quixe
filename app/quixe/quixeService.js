@@ -6461,8 +6461,6 @@
                     }
                 }
                 total_path_calls++; //###stats
-                if(total_path_calls==6)
-                console.log('$giDispa.build_function');
                 try {
                     path();
                 }
