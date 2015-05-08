@@ -92,6 +92,7 @@
          * selection, the callback will be called with a null argument.
          */
         function dialog_open(tosave, usage, gameid, callback) {
+
             if (is_open)
                 throw 'Dialog: dialog box is already open.';
 
@@ -427,6 +428,7 @@
             filename = filename.strip(); // prototype-ism
             if (!filename)
                 return false;
+
             var dirent = file_construct_ref(filename, cur_usage, cur_gameid);
 
             if (file_ref_exists(dirent) && !confirming) {

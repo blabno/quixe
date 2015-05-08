@@ -125,7 +125,6 @@
         }
 
         var instance = angular.copy($eventEmiter, {});
-        //console.log(Object);
         //var instance = Object.clone($eventEmiter);
         instance._outputBuffer = new OutputBuffer();
 
@@ -5628,6 +5627,8 @@
             /* Push the first function call. (No arguments.) */
             enter_function(startfuncaddr, 0);
 
+            $eventEmiter.emit( 'ready' );
+
             /* We're now ready to execute. */
         }
 
@@ -5728,6 +5729,7 @@
          on success. 
          */
         function vm_save(streamid) {
+
             ;;;if (memmap.length != endmem) {
                 ;;;    fatal_error("Memory length was incorrect before save."); //assert
                 ;;;}
@@ -5738,6 +5740,8 @@
             var str = $giDispa.class_obj_from_id('stream', streamid);
             if (!str)
                 return false;
+
+            $eventEmiter.emit( 'snapshot' );
 
             chunks = {};
 

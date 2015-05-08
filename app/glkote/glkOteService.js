@@ -44,7 +44,7 @@
 {
     'use strict';
 
-    function GlkOte( $dialog, glkote_value ) {
+    function GlkOte( $dialog, glkote_value, $eventEmiter ) {
 
       /* Module global variables */
       var game_interface = null;
@@ -894,6 +894,7 @@
         });
 
         windowdic.values().each(function(win) {
+
           win.reqhyperlink = hashyperlink.get(win.id);
 
           var argi = hasinput.get(win.id);
@@ -1313,6 +1314,8 @@
           }
         }
 
+        $eventEmiter.emit( 'readline', win, val, termkey );
+
         send_response('line', win, val, termkey);
       }
 
@@ -1672,6 +1675,9 @@
        the keydown handler, above.)
        */
       function evhan_input_char_keypress(ev) {
+
+        $eventEmiter.emit( 'readkey', ev );
+
         var keycode = 0;
         if (!ev) { /* MSIE broken event API */
           ev = Event.extend(window.event);
@@ -1763,6 +1769,9 @@
        Divert the enter/return key to submit a line of input.
        */
       function evhan_input_keypress(ev) {
+
+        $eventEmiter.emit( 'readkey', ev );
+
         var keycode = 0;
         if (!ev) { /* MSIE broken event API */
           ev = Event.extend(window.event);
@@ -1881,5 +1890,5 @@
 
 }
 
-    angular.module('quixeApp').factory('$glkOte', ['$dialog', 'glkote_value', GlkOte]);
+    angular.module('quixeApp').factory('$glkOte', ['$dialog', 'glkote_value', '$eventEmiter', GlkOte]);
 })();
