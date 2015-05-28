@@ -2,7 +2,7 @@
 {
     'use strict';
 
-    function appController( $http, $giLoad, $eventEmiter )
+    function appController( $http, $giLoad,$glk, $quixe )
     {
         var src = 'stories/glulxercise.ulx.json';
         var format = 'base64';
@@ -12,19 +12,34 @@
             $giLoad.load_run(null, data.data.base64, format);
         } );
 
-        $eventEmiter.on( 'ready', function() {
+        $quixe.on( 'ready', function() {
             console.log( 'ready fired!' );
         } );
 
-        $eventEmiter.on( 'readline', function() {
+        $quixe.on( 'put_jstring', function() {
+            console.log( 'on put_jstring',arguments );
+          $glk.glk_put_jstring.apply($glk,arguments);
+        } );
+
+        $quixe.on( 'put_jstring_stream', function() {
+            console.log( 'on put_jstring_stream',arguments );
+          $glk.glk_put_jstring_stream.apply($glk,arguments);
+        } );
+
+        $quixe.on( 'put_char', function() {
+            console.log( 'on put_char',arguments );
+          $glk.glk_put_char.apply($glk,arguments);
+        } );
+
+        $quixe.on( 'readline', function() {
             console.log( 'readline fired!', arguments );
         } );
 
-        $eventEmiter.on( 'snapshot', function() {
+        $quixe.on( 'snapshot', function() {
             console.log( 'snapshot fired!' );
         } );
 
-        $eventEmiter.on( 'readkey', function() {
+        $quixe.on( 'readkey', function() {
             console.log( 'readkey fired!', arguments );
         } );
     }

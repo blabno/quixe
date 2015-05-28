@@ -63,7 +63,7 @@
 /* Put everything inside the Quixe namespace. */
 
 (function() {
-
+//todo substitute all $glk calls with events
     function quixe($eventEmiter, $glk, $giDispa, giload_value)
     {
         function OutputBuffer() {
@@ -124,7 +124,23 @@
             }
         }
 
-        var instance = angular.copy($eventEmiter, {});
+        var instance = angular.copy($eventEmiter, {});//todo new EventEmiter
+
+      var $quixe = {
+
+            put_char : function() {
+              instance.trigger('put_char',arguments);
+            } ,
+
+            put_jstring_stream : function() {
+              instance.trigger('put_jstring_stream',arguments);
+            } ,
+
+            put_jstring : function() {
+              instance.trigger('put_jstring',arguments);
+            }
+    };
+
         //var instance = Object.clone($eventEmiter);
         instance._outputBuffer = new OutputBuffer();
 
@@ -1208,7 +1224,7 @@
             var str = context.buffer.join("");
             context.buffer.length = 0;
 
-            context.code.push("$glk.glk_put_jstring("+QuoteEscapeString(str)+");");
+            context.code.push("$quixe.put_jstring("+QuoteEscapeString(str)+");");
         }
 
         /* Return the signed equivalent of a value. If it is a high-bit constant, 
@@ -2213,10 +2229,10 @@
                     case 2: /* glk */
                         if (quot_isconstant(operands[0])) {
                             var val = Number(operands[0]) & 0xff;
-                            context.code.push("$glk.glk_put_char("+val+");");
+                            context.code.push("$quixe.put_char("+val+");");
                         }
                         else {
-                            context.code.push("$glk.glk_put_char(("+operands[0]+")&0xff);");
+                            context.code.push("$quixe.put_char(("+operands[0]+")&0xff);");
                         }
                         break;
                     case 1: /* filter */
@@ -2249,10 +2265,10 @@
                         var sign0 = oputil_signify_operand(context, operands[0]);
                         if (quot_isconstant(operands[0])) {
                             var val = Number(sign0).toString(10);
-                            context.code.push("$glk.glk_put_jstring("+QuoteEscapeString(val)+", true);");
+                            context.code.push("$quixe.put_jstring("+QuoteEscapeString(val)+", true);");
                         }
                         else {
-                            context.code.push("$glk.glk_put_jstring(("+sign0+").toString(10), true);");
+                            context.code.push("$quixe.put_jstring(("+sign0+").toString(10), true);");
                         }
                         break;
                     case 1: /* filter */
@@ -3949,7 +3965,7 @@
 
                 /* func_1_z__region(obj) */
                 if (accel_func_map[1](argc, argv) != 1) {
-                    $glk.glk_put_jstring("\n[** Programming error: tried to find the \".\" of (something) **]\n");
+                    $quixe.put_jstring("\n[** Programming error: tried to find the \".\" of (something) **]\n");
                     return 0;
                 }
 
@@ -4030,7 +4046,7 @@
                     return 0;
 
                 if (!accel_helper_obj_in_class(cla)) {
-                    $glk.glk_put_jstring("\n[** Programming error: tried to apply 'ofclass' with non-class **]\n");
+                    $quixe.put_jstring("\n[** Programming error: tried to apply 'ofclass' with non-class **]\n");
                     return 0;
                 }
 
@@ -4064,7 +4080,7 @@
                         return Mem4(accel_params[8] + (4 * id));
                     }
 
-                    $glk.glk_put_jstring("\n[** Programming error: tried to read (something) **]\n");
+                    $quixe.put_jstring("\n[** Programming error: tried to read (something) **]\n");
                     return 0;
                 }
 
@@ -4110,7 +4126,7 @@
 
                 /* func_1_z__region(obj) */
                 if (accel_func_map[1](argc, argv) != 1) {
-                    $glk.glk_put_jstring("\n[** Programming error: tried to find the \".\" of (something) **]\n");
+                    $quixe.put_jstring("\n[** Programming error: tried to find the \".\" of (something) **]\n");
                     return 0;
                 }
 
@@ -4192,7 +4208,7 @@
                     return 0;
 
                 if (!accel_helper_obj_in_class(cla)) {
-                    $glk.glk_put_jstring("\n[** Programming error: tried to apply 'ofclass' with non-class **]\n");
+                    $quixe.put_jstring("\n[** Programming error: tried to apply 'ofclass' with non-class **]\n");
                     return 0;
                 }
 
@@ -4226,7 +4242,7 @@
                         return Mem4(accel_params[8] + (4 * id));
                     }
 
-                    $glk.glk_put_jstring("\n[** Programming error: tried to read (something) **]\n");
+                    $quixe.put_jstring("\n[** Programming error: tried to read (something) **]\n");
                     return 0;
                 }
 
@@ -4536,7 +4552,7 @@
                 case 2: /* glk */
                     if (charnum)
                         buf = buf.slice(charnum);
-                    $glk.glk_put_jstring(buf, true);
+                    $quixe.put_jstring(buf, true);
                     break;
 
                 case 1: /* filter */
@@ -4618,7 +4634,7 @@
                     if (iosysmode === 20)
                         instance._outputBuffer.write(strop);
                     else
-                        $glk.glk_put_jstring(strop);
+                        $quixe.put_jstring(strop);
                     if (!substring)
                         return false;
                 }
@@ -6272,7 +6288,7 @@
 
         function parse_inform_debug_data(datachunknum) {
             //var el = $giLoad.find_data_chunk(datachunknum);
-            var el = giload_value.datachunks(datachunknum);
+            var el = giload_value.datachunks(datachunknum);//todo once giload will get merged into $quixe (this) then datachunks will be available directly here
             if (!el)
                 return;
             var buf = el.data;
@@ -6486,10 +6502,10 @@
             if (vm_stopped) {
                 /* If the library resumes us after exiting, we'll call glk_exit()
                  again. That's the library's problem. */
-                $glk.glk_exit();
+                $glk.glk_exit();//todo this should be an event
             }
 
-            $glk.update();
+            $glk.update();//todo this should be an event
 
             qlog("### done executing; path time = " + (pathend-pathstart) + " ms");
         }

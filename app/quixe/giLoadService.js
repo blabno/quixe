@@ -70,8 +70,8 @@
 
 /* Put everything inside the GiLoad namespace. */
 (function() {
-
-    function giLoad( $quixe, $glkOte, $glk, game_options, giload_value )
+//todo simplify this service so that it loads image only (no xhr calls) and then merge it into $quixe
+    function giLoad( $quixe, $log, $glk, game_options, giload_value )
     {
 
         /* Start with the defaults. These can be modified later by the game_options
@@ -125,7 +125,7 @@
             if (!gameurl && image) {
                 /* The story data is already loaded -- it's not an a URL at all.
                    Decode it, and then fire it off. */
-                $glkOte.log('### trying pre-loaded load (' + image_format + ')...');
+                $log.log('### trying pre-loaded load (' + image_format + ')...');
                 switch (image_format) {
                 case 'base64':
                     image = decode_base64(image);
@@ -155,7 +155,7 @@
                 return;
             }
 
-            $glkOte.log('### gameurl: ' + gameurl); //###
+            $log.log('### gameurl: ' + gameurl); //###
             /* The gameurl is now known. (It should not change after this point.)
                The next question is, how do we load it in? */
 
@@ -189,14 +189,14 @@
             }
             var old_js_url = gameurl.toLowerCase().endsWith('.js');
 
-            $glkOte.log('### is_relative=' + is_relative + ', same_origin=' + same_origin + ', binary_supported=' + binary_supported + ', crossorigin_supported=' + crossorigin_supported);
+            $log.log('### is_relative=' + is_relative + ', same_origin=' + same_origin + ', binary_supported=' + binary_supported + ', crossorigin_supported=' + crossorigin_supported);
 
             if (old_js_url && same_origin) {
                 /* Old-fashioned Javascript file -- the output of Parchment's
                    zcode2js tool. When loaded and eval'ed, this will call
                    a global function processBase64Zcode() with base64 data
                    as the argument. */
-                $glkOte.log('### trying old-fashioned load...');
+                $log.log('### trying old-fashioned load...');
                 window.processBase64Zcode = function(val) {
                     start_game(decode_base64(val));
                 };
@@ -214,7 +214,7 @@
                 /* Javascript file in a different domain. We'll insert it as a <script>
                    tag; that will force it to load, and invoke a processBase64Zcode()
                    function as above. */
-                $glkOte.log('### trying script load...');
+                $log.log('### trying script load...');
                 window.processBase64Zcode = function(val) {
                     start_game(decode_base64(val));
                 };
@@ -231,7 +231,7 @@
 
             if (binary_supported && same_origin) {
                 /* We can do an Ajax GET of the binary data. */
-                $glkOte.log('### trying binary load...');
+                $log.log('### trying binary load...');
                 new Ajax.Request(gameurl, {
                         method: 'get',
                         onCreate: function(resp) {
@@ -263,7 +263,7 @@
             var absgameurl = gameurl;
             if (is_relative) {
                 absgameurl = absolutize(gameurl);
-                $glkOte.log('### absolutize ' + gameurl + ' to ' + absgameurl);
+                $log.log('### absolutize ' + gameurl + ' to ' + absgameurl);
             }
 
             if (crossorigin_supported) {
@@ -271,7 +271,7 @@
                    domain. Either way, we'll go through the proxy, which will
                    convert it to base64 for us. The proxy gives the right headers
                    to make cross-origin Ajax work. */
-                $glkOte.log('### trying proxy load... (' + all_options.proxy_url + ')');
+                $log.log('### trying proxy load... (' + all_options.proxy_url + ')');
                 new Ajax.Request(all_options.proxy_url, {
                         method: 'get',
                         parameters: { encode: 'base64', url: absgameurl },
@@ -292,7 +292,7 @@
                 /* Cross-origin Ajax isn't available. We can still use the proxy,
                    but we'll have to insert a <script> tag to do it. */
                 var fullurl = all_options.proxy_url + '?encode=base64&callback=processBase64Zcode&url=' + absgameurl;
-                $glkOte.log('### trying proxy-script load... (' + fullurl + ')');
+                $log.log('### trying proxy-script load... (' + fullurl + ')');
                 window.processBase64Zcode = function(val) {
                     start_game(decode_base64(val));
                 };
@@ -537,7 +537,7 @@
 
             /* Now fire up the display library. This will take care of starting
                the VM engine, once the window is properly set up. */
-            all_options.io.init(all_options);
+            all_options.io.init(all_options);//todo do vm.init and it should raise event that $glk would handle
         }
 
         giload_value.datachunks = find_data_chunk;
@@ -546,12 +546,12 @@
            become the GiLoad global. */
         return {
             load_run: load_run,
-            find_data_chunk: find_data_chunk
+            find_data_chunk: find_data_chunk//todo find_data_chunk should be returned by load_run
         };
 
     }
 
-    angular.module('quixeApp').factory('$giLoad', [ '$quixe', '$glkOte', '$glk', 'game_options', 'giload_value', giLoad ] );
+    angular.module('quixeApp').factory('$giLoad', [ '$quixe', '$log', '$glk', 'game_options', 'giload_value', giLoad ] );
 
 })();
 
