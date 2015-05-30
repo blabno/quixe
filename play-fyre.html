@@ -80,7 +80,7 @@ This should not be visible
     });
 
     Quixe.on('ready', function(data) {
-      console.log(JSON.stringify(data));
+      console.log('ready',JSON.stringify(data));
     });
 
     Quixe.on('readline', function() {
@@ -88,6 +88,7 @@ This should not be visible
     });
 
     Quixe.on('readkey', function() {
+        console.log('readkey');
       jQuery(document).keypress(function(event) {
         jQuery(document).unbind('keypress'); // must do this or we get conflicts!
         Quixe.readkey_resume(event.which);
@@ -95,6 +96,7 @@ This should not be visible
     });
 
     Quixe.on('snapshot', function(snapshot) {
+        console.log('snapshot');
       //console.log('### snapshot = ' + JSON.stringify(snapshot));
     });
 

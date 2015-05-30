@@ -64,7 +64,7 @@
 
 (function() {
 //todo substitute all $glk calls with events
-    function quixe($eventEmiter, $glk, $giDispa, giload_value)
+    function quixe($eventEmiter)
     {
         function OutputBuffer() {
             this._channelData = {};
@@ -126,20 +126,42 @@
 
         var instance = angular.copy($eventEmiter, {});//todo new EventEmiter
 
-      var $quixe = {
+        var $quixe = {
+            call_may_not_return: function (id)
+            {
+                if (id == 0x001 || id == 0x0C0 || id == 0x062)
+                    return true; else
+                    return false;
+            },
+            fatal_error: function ()
+            {
+                instance.trigger('fatal_error', arguments);
+            },
+            update: function ()
+            {
+                instance.trigger('update', arguments);
+            },
 
-            put_char : function() {
-              instance.trigger('put_char',arguments);
-            } ,
+            put_char: function ()
+            {
+                instance.trigger('put_char', arguments);
+            },
 
-            put_jstring_stream : function() {
-              instance.trigger('put_jstring_stream',arguments);
-            } ,
+            put_char_uni: function ()
+            {
+                instance.trigger('put_char_uni', arguments);
+            },
 
-            put_jstring : function() {
-              instance.trigger('put_jstring',arguments);
+            put_jstring_stream: function ()
+            {
+                instance.trigger('put_jstring_stream', arguments);
+            },
+
+            put_jstring: function ()
+            {
+                instance.trigger('put_jstring', arguments);
             }
-    };
+        };
 
         //var instance = Object.clone($eventEmiter);
         instance._outputBuffer = new OutputBuffer();
@@ -187,7 +209,7 @@
          */
         function quixe_init() {
             if (vm_started) {
-                $glk.fatal_error("Quixe was inited twice!");
+                $quixe.fatal_error("Quixe was inited twice!");
                 return;
             }
 
@@ -200,7 +222,7 @@
             }
             catch (ex) {
                 qstackdump();
-                $glk.fatal_error("Quixe init: " + show_exception(ex));
+                $quixe.fatal_error("Quixe init: " + show_exception(ex));
                 if (opt_rethrow_exceptions)
                     throw ex;
             }
@@ -217,7 +239,7 @@
             }
             catch (ex) {
                 qstackdump();
-                $glk.fatal_error("Quixe run: " + show_exception(ex));
+                $quixe.fatal_error("Quixe run: " + show_exception(ex));
                 if (opt_rethrow_exceptions)
                     throw ex;
             }
@@ -474,10 +496,10 @@
         }
 
         /* GiDispa calls this, right before resuming execution at the end of a
-         blocking $glk call. The value passed in is the result of the $glk
+         blocking glk call. The value passed in is the result of the glk
          call, which may have to be stored in a local variable or wherever.
          (This is only really relevant for glk_fileref_create_by_prompt(),
-         since it's the only non-void blocking $glk call.)
+         since it's the only non-void blocking glk call.)
          */
         function SetResumeStore(val) {
             resumevalue = val;
@@ -2309,10 +2331,10 @@
                     case 2: /* glk */
                         if (quot_isconstant(operands[0])) {
                             var val = Number(operands[0]);
-                            context.code.push("$glk.glk_put_char_uni("+val+");");
+                            context.code.push("$quixe.glk_put_char_uni("+val+");");
                         }
                         else {
-                            context.code.push("$glk.glk_put_char_uni("+operands[0]+");");
+                            context.code.push("$quixe.glk_put_char_uni("+operands[0]+");");
                         }
                         break;
                     case 1: /* filter */
@@ -2636,7 +2658,7 @@
             0x130: function(context, operands) { /* glk */
                 var mayblock;
                 if (quot_isconstant(operands[0]))
-                    mayblock = $glk.call_may_not_return(Number(operands[0]));
+                    mayblock = $quixe.call_may_not_return(Number(operands[0]));
                 else
                     mayblock = true;
                 context.code.push("tempglkargs.length = " + operands[1] + ";");
@@ -5643,8 +5665,6 @@
             /* Push the first function call. (No arguments.) */
             enter_function(startfuncaddr, 0);
 
-            $eventEmiter.emit( 'ready' );
-
             /* We're now ready to execute. */
         }
 
@@ -5756,8 +5776,6 @@
             var str = $giDispa.class_obj_from_id('stream', streamid);
             if (!str)
                 return false;
-
-            $eventEmiter.emit( 'snapshot' );
 
             chunks = {};
 
@@ -6505,7 +6523,7 @@
                 $glk.glk_exit();//todo this should be an event
             }
 
-            $glk.update();//todo this should be an event
+            $quixe.update();//todo this should be an event
 
             qlog("### done executing; path time = " + (pathend-pathstart) + " ms");
         }
@@ -6549,7 +6567,7 @@
         return instance;
     }
 
-    angular.module('quixeApp').factory('$quixe', ['$eventEmiter', '$glk', '$giDispa', 'giload_value', quixe])
+    angular.module('quixeApp').factory('$quixe', quixe)
 
 })();
 
