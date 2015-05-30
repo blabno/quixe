@@ -32,7 +32,7 @@ module.exports = function (grunt)
             },
             livereload: {
                 options: {
-                    open: 'http://<%= connect.options.hostname %>:<%= connect.options.port %>/play.html',
+                    open: true,
                     middleware: function (connect)
                     {
                         return [
@@ -48,6 +48,13 @@ module.exports = function (grunt)
                 exclude: [],
                 ignorePath: '<%= config.app %>/'
             }
+        },
+        'gh-pages': {
+            options: {
+                base: '.'
+            },
+            src: ['index.html', 'app/*.js', 'src/EventEmitter.js', 'app/bower_components/angular/angular.min.js',
+                  'stories/fyretester.ulx.json','.nojekyll']
         }
     });
 

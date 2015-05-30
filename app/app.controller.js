@@ -108,5 +108,5 @@
         });
     }
 
-    angular.module('quixeApp').controller('appController', appController);
+    angular.module('quixe').controller('app', appController);
 })();

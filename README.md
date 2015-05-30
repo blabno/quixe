@@ -10,4 +10,4 @@ bower install
 grunt serve
 ```
 
-It will open up `play.html` demo.
+It will open up angular demo.

@@ -2,6 +2,6 @@
 {
     'use strict';
 
-    angular.module('quixeApp', []);
+    angular.module('quixe', []);
 
 })();

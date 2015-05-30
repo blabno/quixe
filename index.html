@@ -14,7 +14,7 @@
         }
     </style>
 </head>
-<body data-ng-app="quixeApp" data-ng-controller="appController as app">
+<body data-ng-app="quixe" data-ng-controller="app as app">
 <h1>Welcome to AngularJS version of Quixe</h1>
 
 <form ng-submit="app.send()" novalidate>
@@ -26,9 +26,9 @@
 
 <script type="text/javascript" src="app/bower_components/angular/angular.min.js"></script>
 <script type="text/javascript" src="src/EventEmitter.js"></script>
-<script type="text/javascript" src="app/quixeApp.js"></script>
-<script type="text/javascript" src="app/appController.js"></script>
-<script type="text/javascript" src="app/quixe/quixeService.js"></script>
+<script type="text/javascript" src="app/_quixe.js"></script>
+<script type="text/javascript" src="app/quixe.service.js"></script>
+<script type="text/javascript" src="app/app.controller.js"></script>
 
 
 </body>

@@ -6565,7 +6565,7 @@
         return instance;
     }
 
-    angular.module('quixeApp').factory('$quixe', quixe)
+    angular.module('quixe').factory('$quixe', quixe)
 
 })();
 
