@@ -32,7 +32,7 @@ module.exports = function (grunt)
             },
             livereload: {
                 options: {
-                    open: true,
+                    open: 'http://<%= connect.options.hostname %>:<%= connect.options.port %>/play.html',
                     middleware: function (connect)
                     {
                         return [

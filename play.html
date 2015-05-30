@@ -1,23 +1,33 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
 <head>
-    <title>Quixe</title>
+    <title>Quixe Angularized</title>
 
     <meta name="viewport" content="width=device-width, user-scalable=no">
-
+    <style type="text/css">
+        .console {
+            margin-top: 1em;
+            white-space: pre-line;
+            border: 1px solid #aaa;
+            padding: 2em;
+            background-color: #eee;
+        }
+    </style>
 </head>
 <body data-ng-app="quixeApp" data-ng-controller="appController as app">
+<h1>Welcome to AngularJS version of Quixe</h1>
 
 <form ng-submit="app.send()" novalidate>
     <input ng-model="app.input"/>
 </form>
-<div ng-bind="app.buffer" style="white-space: pre-line;"></div>
+
+<div class="console" ng-bind="app.buffer"></div>
 
 
 <script type="text/javascript" src="app/bower_components/angular/angular.min.js"></script>
+<script type="text/javascript" src="src/EventEmitter.js"></script>
 <script type="text/javascript" src="app/quixeApp.js"></script>
 <script type="text/javascript" src="app/appController.js"></script>
-<script type="text/javascript" src="app/eventEmiterService.js"></script>
 <script type="text/javascript" src="app/quixe/quixeService.js"></script>
 
 

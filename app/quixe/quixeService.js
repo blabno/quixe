@@ -63,8 +63,8 @@
 /* Put everything inside the Quixe namespace. */
 
 (function() {
-//todo substitute all $glk calls with events
-    function quixe($eventEmiter)
+
+    function quixe()
     {
         function OutputBuffer() {
             this._channelData = {};
@@ -124,14 +124,12 @@
             }
         }
 
-        var instance = angular.copy($eventEmiter, {});//todo new EventEmiter
+        var instance = new EventEmitter();
 
         var $quixe = {
             call_may_not_return: function (id)
             {
-                if (id == 0x001 || id == 0x0C0 || id == 0x062)
-                    return true; else
-                    return false;
+                return id == 0x001 || id == 0x0C0 || id == 0x062;
             },
             fatal_error: function ()
             {
@@ -163,7 +161,6 @@
             }
         };
 
-        //var instance = Object.clone($eventEmiter);
         instance._outputBuffer = new OutputBuffer();
 
         /* This is called by the page (or the page's loader library) when it
@@ -2686,6 +2683,7 @@
                  we just unloaded the offstack. The non-blocking case is a normal
                  store. */
                 context.varsused["glkret"] = true;
+//                TODO this might be potential problem, but maybe FYRE does not use this.
                 context.code.push("glkret = $giDispa.get_function("+operands[0]+")(tempglkargs);");
                 if (mayblock) {
                     context.code.push("if (glkret === $glk.DidNotReturn) {");
@@ -5765,7 +5763,7 @@
          on success. 
          */
         function vm_save(streamid) {
-
+//TODO vm_save needs angularization
             ;;;if (memmap.length != endmem) {
                 ;;;    fatal_error("Memory length was incorrect before save."); //assert
                 ;;;}
@@ -5822,7 +5820,7 @@
         function vm_restore(streamid) {
             if (iosysmode != 2)
                 fatal_error("Streams are only available in $glk I/O system.");
-
+//TODO vm_restore needs angularization
             var str = $giDispa.class_obj_from_id('stream', streamid);
             if (!str)
                 return false;
