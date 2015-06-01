@@ -53,8 +53,8 @@ module.exports = function (grunt)
             options: {
                 base: '.'
             },
-            src: ['index.html', 'app/*.js', 'src/EventEmitter.js', 'app/bower_components/angular/angular.min.js',
-                  'stories/fyretester.ulx.json','.nojekyll']
+            src: ['index.html', 'app/*.js', 'src/EventEmitter.js', 'app/bower_components/angular/angular.js',
+                  'app/bower_components/angular-local-storage/dist/angular-local-storage.js', 'stories/fyretester.ulx.json', '.nojekyll']
         }
     });
 
