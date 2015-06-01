@@ -2,6 +2,9 @@
 {
     'use strict';
 
-    angular.module('quixe', []);
+    angular.module('quixe', ['LocalStorageModule']).config(function (localStorageServiceProvider)
+    {
+        localStorageServiceProvider.setPrefix('quixe:save');
+    });
 
 })();

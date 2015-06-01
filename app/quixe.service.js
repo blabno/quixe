@@ -66,6 +66,66 @@
 
     function quixe()
     {
+        function load(data)
+        {
+            var decode_base64;
+            if (window.atob) {
+                decode_base64 = function (base64data)
+                {
+                    var data = atob(base64data);
+                    var image = new Array(data.length);
+                    var ix;
+
+                    for (ix = 0; ix < data.length; ix++) {
+                        image[ix] = data.charCodeAt(ix);
+                    }
+
+                    return image;
+                }
+            } else {
+                /* No atob() in Internet Explorer, so we have to invent our own.
+                 This implementation is adapted from Parchment. */
+                var b64decoder = (function ()
+                {
+                    var b64encoder = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+                    var out = [];
+                    var ix;
+                    for (ix = 0; ix < b64encoder.length; ix++) {
+                        out[b64encoder.charAt(ix)] = ix;
+                    }
+                    return out;
+                })();
+
+                decode_base64 = function (base64data)
+                {
+                    var out = [];
+                    var c1, c2, c3, e1, e2, e3, e4;
+                    var i = 0, len = base64data.length;
+                    while (i < len) {
+                        e1 = b64decoder[base64data.charAt(i++)];
+                        e2 = b64decoder[base64data.charAt(i++)];
+                        e3 = b64decoder[base64data.charAt(i++)];
+                        e4 = b64decoder[base64data.charAt(i++)];
+                        c1 = (e1 << 2) + (e2 >> 4);
+                        c2 = ((e2 & 15) << 4) + (e3 >> 2);
+                        c3 = ((e3 & 3) << 6) + e4;
+                        out.push(c1, c2, c3);
+                    }
+                    if (e4 == 64) {
+                        out.pop();
+                    }
+                    if (e3 == 64) {
+                        out.pop();
+                    }
+                    return out;
+                }
+            }
+            var image = data.data.base64;
+            image = decode_base64(image);
+            quixe_prepare(image, {});
+            quixe_init();
+        }
+
         function OutputBuffer() {
             this._channelData = {};
             this._channel = ('M'.charCodeAt(0) << 24)
@@ -134,6 +194,14 @@
             fatal_error: function ()
             {
                 instance.trigger('fatal_error', arguments);
+            },
+            save: function ()
+            {
+                instance.trigger('save', arguments);
+            },
+            load: function ()
+            {
+                instance.trigger('load', arguments);
             },
             update: function ()
             {
@@ -322,7 +390,7 @@
             qlog("VM stack dump: " + ls.join(", "));
         }
 
-        /* Fast char-to-hex and char-to-quoted-char conversion tables. 
+        /* Fast char-to-hex and char-to-quoted-char conversion tables.
          setup_bytestring_table() is called once, at startup time.
          */
         var bytestring_table = Array(256);
@@ -578,7 +646,7 @@
         /* Turn a string containing JS statements into a function object that
          executes those statements. If an arg is provided, it becomes the
          function argument. (It can also be a comma-separated list of
-         arguments, if you want more than one.) 
+         arguments, if you want more than one.)
 
          This uses eval(), rather than Function(), because it needs to
          return a closure inside the Quixe environment. (All the generated
@@ -625,12 +693,12 @@
             this.rawformat = rawformat; /* array of bytes (multiple of 4) */
             this.localsindex = []; /* array of {size, pos} */
 
-            /* Create a locals index, according to the format. This will 
+            /* Create a locals index, according to the format. This will
              contain one {size, pos} per local.
 
              This is wacky, because it's not a simple list of values. A local is
              accessed by its byte position, assuming the "natural" four-byte word
-             size. So the first (4-byte) local will be locals[0], the second will 
+             size. So the first (4-byte) local will be locals[0], the second will
              be locals[4], and so on. In-between values will be undefined. */
             var ix, jx;
             var locallen = 0;
@@ -666,7 +734,7 @@
          for the stack frame; we generate that at save time.
 
          If we're deserializing a saved game, the vmfunc isn't a "real" vmfunc,
-         but a ghost built from the saved stack frame. In particular, 
+         but a ghost built from the saved stack frame. In particular,
          vmfunc.funcaddr and vmfunc.startpc are null.
          */
         function StackFrame(vmfunc) {
@@ -682,7 +750,7 @@
             this.localsindex = vmfunc.localsindex;
             this.locals = [];
 
-            /* Create a locals array, according to the index. All locals begin 
+            /* Create a locals array, according to the index. All locals begin
              with a value of zero. */
             for (ix=0; ix<this.localsindex.length; ix++) {
                 var form = this.localsindex[ix];
@@ -775,7 +843,7 @@
             var localsformat = [];
             var addr = 8;
             while (1) {
-                /* Grab two bytes from the locals-format list. These are 
+                /* Grab two bytes from the locals-format list. These are
                  unsigned (0..255 range). */
                 var loctype = ByteRead1(arr, addr);
                 addr++;
@@ -1081,7 +1149,7 @@
                          I'm calling quot_isconstant() and quot_isholdvar(). */
                         var opchar = operand[0];
                         if (opchar === "0") { /* quot_isconstant(operand) */
-                            /* If this is an untruncated constant, we can move it 
+                            /* If this is an untruncated constant, we can move it
                              directly to the offstack. */
                             context.offstack.push(operand);
                             ;;;context.code.push("// push to offstack: "+operand); //debug
@@ -1119,7 +1187,7 @@
                          I'm calling quot_isconstant() and quot_isholdvar(). */
                         var opchar = operand[0];
                         if (opchar === "0") { /* quot_isconstant(operand) */
-                            /* If this is an untruncated constant, we can move it 
+                            /* If this is an untruncated constant, we can move it
                              directly to the offloc. */
                             store_offloc_value(context, funcop.addr, operand, false);
                             ;;;context.code.push("// store to offloc["+funcop.addr+"]: "+operand); //debug
@@ -1167,7 +1235,7 @@
         }
 
         /* Push the four-value call stub onto the stack. The operand should be the
-         output of a "C" operand -- a string of the form "DESTTYPE,DESTADDR". 
+         output of a "C" operand -- a string of the form "DESTTYPE,DESTADDR".
 
          The last argument, addr, is optional. If not provided, it defaults to
          context.cp -- the address of the next opcode (to be compiled).
@@ -1195,7 +1263,7 @@
         /* Move all values on the offstack to the real stack, and all values
          on the offloc to the real local variables. A handler should call
          this before any operation which requires a legal game state, and
-         also before ending compilation. 
+         also before ending compilation.
 
          If keepstack is true, this generates code to move the values, but
          leaves them on the offstack as well. Call this form before a conditional
@@ -1230,7 +1298,7 @@
                     if (context.holduse[holdvar] !== undefined)
                         context.holduse[holdvar] = false;
                 }
-                /* Now offstack/offloc are empty, and all their variables are marked 
+                /* Now offstack/offloc are empty, and all their variables are marked
                  not on it. (There might have been constant values too, but that
                  didn't affect holduse.) */
             }
@@ -1246,7 +1314,7 @@
             context.code.push("$quixe.put_jstring("+QuoteEscapeString(str)+");");
         }
 
-        /* Return the signed equivalent of a value. If it is a high-bit constant, 
+        /* Return the signed equivalent of a value. If it is a high-bit constant,
          this returns its negative equivalent as a constant. If it is a _hold
          variable or expression, a new expression is returned with the signed
          value.
@@ -1310,7 +1378,7 @@
         }
 
         /* Generate code for a branch to operand. This includes the usual branch
-         hack; 0 or 1 return from the current function. 
+         hack; 0 or 1 return from the current function.
          If unconditional is false, the offstack values are left in place,
          so that compilation can continue.
          */
@@ -1350,7 +1418,7 @@
             context.code.push("return;");
         }
 
-        /* opcode_table: All the Glulx VM opcodes. 
+        /* opcode_table: All the Glulx VM opcodes.
 
          Each entry in this table is a function that *generates* executable
          Javascript code for that opcode. When we're compiling a code path,
@@ -2045,7 +2113,7 @@
 
             0x103: function(context, operands) { /* setmemsize */
                 context.code.push("change_memsize("+operands[0]+",false);");
-                /* An allocation failure is a fatal error, so we always return 
+                /* An allocation failure is a fatal error, so we always return
                  success. */
                 context.code.push(operands[1]+"0);");
             },
@@ -2187,7 +2255,7 @@
                 context.code.push("mdest="+operands[2]+";");
 
                 /* This could be optimized for the case where mlen is constant.
-                 But for a rarely-used opcode, it's not really worth it. 
+                 But for a rarely-used opcode, it's not really worth it.
                  */
                 context.code.push("if (mdest < msrc) {");
                 context.code.push("for (ix=0; ix<mlen; ix++, msrc++, mdest++) MemW1(mdest, Mem1(msrc));");
@@ -2307,7 +2375,7 @@
                 /* It would be nice to determine at compile-time whether the
                  value is a (cacheable) simple string value. In that case, we
                  could throw it into glk_put_jstring and continue -- no need
-                 to unload the offstack or return. (Or, of the value is 
+                 to unload the offstack or return. (Or, of the value is
                  determined to be a function, we can unload and return.)
                  */
                 oputil_unload_offstate(context);
@@ -2368,7 +2436,7 @@
                     context.curiosys = val;
                 }
                 else {
-                    /* We can't compile with an unknown iosysmode. So, stop 
+                    /* We can't compile with an unknown iosysmode. So, stop
                      compiling. */
                     oputil_unload_offstate(context);
                     context.code.push("pc = "+context.cp+";");
@@ -2741,9 +2809,9 @@
             }
         }
 
-        /* Select a currently-unused "_hold*" variable, and mark it used. 
+        /* Select a currently-unused "_hold*" variable, and mark it used.
          If use is true, it's marked "1", meaning it's going onto the offstack
-         or offloc. 
+         or offloc.
          */
         function alloc_holdvar(context, use) {
             var ix = 0;
@@ -2758,9 +2826,9 @@
             }
         }
 
-        /* Remove a value from the offstack. If it is a constant, return it. If it 
-         is a _hold var, mark it as not used by the offstack any more, and return 
-         it (now a temporary holdvar). 
+        /* Remove a value from the offstack. If it is a constant, return it. If it
+         is a _hold var, mark it as not used by the offstack any more, and return
+         it (now a temporary holdvar).
          (Do not call this if the offstack is empty.)
          */
         function pop_offstack_holdvar(context) {
@@ -2902,7 +2970,7 @@
          it messes with the offstack in a confusing way, and also can't treat
          constants specially.
 
-         "C" (callstub): The returned value is an expression of the form 
+         "C" (callstub): The returned value is an expression of the form
          "desttype,destaddr" -- two of the values in a Glulx call stub. The
          oputil_push_callstub() function knows how to generate code that pushes
          a call stub, if you pass these values in.
@@ -3459,7 +3527,7 @@
             var rawstart = addr;
             var ix = 0;
             while (1) {
-                /* Grab two bytes from the locals-format list. These are 
+                /* Grab two bytes from the locals-format list. These are
                  unsigned (0..255 range). */
                 var loctype = Mem1(addr);
                 addr++;
@@ -3540,7 +3608,7 @@
 
                 /* Indicates whether the values in offloc need to be written back
                  to the locals array. (True means yes; false means it's just a
-                 a cached value and doesn't need to be written.) Same indices as 
+                 a cached value and doesn't need to be written.) Same indices as
                  offloc. */
                 offlocdirty: [],
 
@@ -3549,7 +3617,7 @@
             };
 
             /* This will hold the operand information for each opcode we compile.
-             We'll recycle the object rather than allocating a new one each 
+             We'll recycle the object rather than allocating a new one each
              time. */
             var operands = {};
             /* Another object to recycle. */
@@ -3590,7 +3658,7 @@
                 ;;;context.code.push("// " + opcodecp.toString(16) + ": opcode 0x" + opcode.toString(16)); //debug
 
                 /* Fetch the structure that describes how the operands for this
-                 opcode are arranged. This is a pointer to an immutable, 
+                 opcode are arranged. This is a pointer to an immutable,
                  static object. */
                 var oplist = operandlist_table[opcode];
                 if (!oplist)
@@ -3649,7 +3717,7 @@
         }
 
         /* Prepare for execution of a new function. The argcount is the number
-         of arguments passed in; the arguments themselves are in the 
+         of arguments passed in; the arguments themselves are in the
          tempcallargs array. (We don't rely on tempcallargs.length, as that
          can be greater than argcount.)
 
@@ -3757,7 +3825,7 @@
             frame.valstack.length = val;
         }
 
-        /* Pop a callstub off the stack, and store a value at the appropriate 
+        /* Pop a callstub off the stack, and store a value at the appropriate
          location. (When returning from a function, for example, the value is
          the function return value, and it gets stored wherever the function
          call wants it. The pc winds up pointing after the function call
@@ -3825,7 +3893,7 @@
         }
 
         /* Do the value-storing part of an already-popped call stub. (This is a
-         subset of the pop_callstub() work.) 
+         subset of the pop_callstub() work.)
          */
         function store_operand(desttype, destaddr, val) {
             switch (desttype) {
@@ -3952,7 +4020,7 @@
         var accel_params = [ 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
 
         /* The code for all the functions we can accelerate. Remember that there may
-         be fewer arguments than expected, and any beyond argc should be taken as 
+         be fewer arguments than expected, and any beyond argc should be taken as
          zero.
          */
         var accel_func_map = {
@@ -4441,7 +4509,7 @@
             vmstring_table = textenv.vmstring_tables[iosysmode];
         }
 
-        /* Set the VM iosys, and adjust the vmstring_table register appropriately. 
+        /* Set the VM iosys, and adjust the vmstring_table register appropriately.
          */
         function set_iosys(mode, rock) {
             switch (mode) {
@@ -4479,7 +4547,7 @@
          The arrays have a peculiar structure (inherited from Glulxe). Each one
          encapsulates a subtree of binary branch nodes, up to four nodes deep. This
          lets you traverse the tree four levels at a time (using four input bits at
-         a time). The first input bit is the 1s place of the array index, and so 
+         a time). The first input bit is the 1s place of the array index, and so
          on.
 
          Life gets complicated if we want to encode *fewer* than four levels. A
@@ -5632,7 +5700,7 @@
 
         /* Put the VM into a state where it's ready to begin executing the
          game. This is called both at startup time, and when the machine
-         performs a "restart" opcode. 
+         performs a "restart" opcode.
          */
         function vm_restart() {
             var ix;
@@ -5760,21 +5828,19 @@
         }
 
         /* Writes a snapshot of the VM state to the given $glk stream. Returns true
-         on success. 
+         on success.
          */
-        function vm_save(streamid) {
-//TODO vm_save needs angularization
+        function vm_save() {
             ;;;if (memmap.length != endmem) {
                 ;;;    fatal_error("Memory length was incorrect before save."); //assert
                 ;;;}
 
-            if (iosysmode != 2)
-                fatal_error("Streams are only available in $glk I/O system.");
+            $quixe.save();
 
-            var str = $giDispa.class_obj_from_id('stream', streamid);
-            if (!str)
-                return false;
+            return true;
+        }
 
+        function get_state() {
             chunks = {};
 
             chunks["IFhd"] = game_image.slice(0, 128);
@@ -5808,31 +5874,22 @@
             BytePushString(payload_bytes, "IFZS");
             payload_bytes = payload_bytes.concat(pack_iff_chunks(chunks));
 
-            var quetzal = pack_iff_chunks({"FORM": payload_bytes})
-            //qlog("vm_save: writing " + quetzal.length + " bytes");    
-            $glk.glk_put_buffer_stream(str, quetzal);
-            return true;
+            return pack_iff_chunks({"FORM": payload_bytes});
         }
 
         /* Reads a VM state snapshot from the given $glk stream and restores it.
          Returns true on success.
          */
-        function vm_restore(streamid) {
-            if (iosysmode != 2)
-                fatal_error("Streams are only available in $glk I/O system.");
-//TODO vm_restore needs angularization
-            var str = $giDispa.class_obj_from_id('stream', streamid);
-            if (!str)
-                return false;
+        function vm_restore() {
 
-            var quetzal = new Array(0);
-            var buffer = new Array(1024);
-            var count = 1;
-            while (count > 0) {
-                count = $glk.glk_get_buffer_stream(str, buffer);
-                quetzal = quetzal.concat(buffer.slice(0, count));
-            }
-            //qlog("vm_restore: reading " + quetzal.length + " bytes");
+            $quixe.load();
+
+            return true;
+        }
+
+        function restore_state( data ) {
+
+            var quetzal = data;
 
             quetzal = unpack_iff_chunks(quetzal);
             if (!quetzal) {
@@ -5937,7 +5994,6 @@
             ;;;assert_heap_valid(); //assert
 
             paste_protected_range(protect);
-            return true;
         }
 
         /* Create a snapshot of the VM state.
@@ -6015,7 +6071,7 @@
             return true;
         }
 
-        /* Change the size of the memory map. The internal flag should be true 
+        /* Change the size of the memory map. The internal flag should be true
          only when the heap-allocation system is calling.
          */
         function change_memsize(newlen, internal) {
@@ -6069,7 +6125,7 @@
             return obj;
         }
 
-        /* Paste a protected-memory range into the VM. 
+        /* Paste a protected-memory range into the VM.
          */
         function paste_protected_range(obj) {
             if (!obj)
@@ -6113,7 +6169,7 @@
         }
 
         /* Return the game image signature. This is used as a fingerprint on save
-         files, to ensure that you can't save in one game and restore in a 
+         files, to ensure that you can't save in one game and restore in a
          different one.
          */
         function quixe_get_signature() {
@@ -6515,11 +6571,11 @@
             pathend = new Date().getTime(); //###stats
             total_execution_time += (pathend-pathstart) / 1000.0; //###stats
 
-            if (vm_stopped) {
-                /* If the library resumes us after exiting, we'll call glk_exit()
-                 again. That's the library's problem. */
-                $glk.glk_exit();//todo this should be an event
-            }
+            //if (vm_stopped) {
+            //    /* If the library resumes us after exiting, we'll call glk_exit()
+            //     again. That's the library's problem. */
+            //    $glk.glk_exit();//todo this should be an event
+            //}
 
             $quixe.update();//todo this should be an event
 
@@ -6529,6 +6585,9 @@
         /* End of Quixe namespace function. Return the object which will
          become the Quixe global. */
         instance.version = '1.3.1'; /* Quixe version */
+        instance.load = load;
+        instance.get_state = get_state;
+        instance.restore_state = restore_state;
         instance.prepare = quixe_prepare;
         instance.init = quixe_init;
         instance.resume = quixe_resume;
