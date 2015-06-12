@@ -2,73 +2,16 @@
 {
     'use strict';
 
-    function load($quixe, data)
-    {
-        var decode_base64;
-        if (window.atob) {
-            decode_base64 = function (base64data)
-            {
-                var data = atob(base64data);
-                var image = new Array(data.length);
-                var ix;
-
-                for (ix = 0; ix < data.length; ix++) {
-                    image[ix] = data.charCodeAt(ix);
-                }
-
-                return image;
-            }
-        } else {
-            /* No atob() in Internet Explorer, so we have to invent our own.
-             This implementation is adapted from Parchment. */
-            var b64decoder = (function ()
-            {
-                var b64encoder = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-                var out = [];
-                var ix;
-                for (ix = 0; ix < b64encoder.length; ix++) {
-                    out[b64encoder.charAt(ix)] = ix;
-                }
-                return out;
-            })();
-
-            decode_base64 = function (base64data)
-            {
-                var out = [];
-                var c1, c2, c3, e1, e2, e3, e4;
-                var i = 0, len = base64data.length;
-                while (i < len) {
-                    e1 = b64decoder[base64data.charAt(i++)];
-                    e2 = b64decoder[base64data.charAt(i++)];
-                    e3 = b64decoder[base64data.charAt(i++)];
-                    e4 = b64decoder[base64data.charAt(i++)];
-                    c1 = (e1 << 2) + (e2 >> 4);
-                    c2 = ((e2 & 15) << 4) + (e3 >> 2);
-                    c3 = ((e3 & 3) << 6) + e4;
-                    out.push(c1, c2, c3);
-                }
-                if (e4 == 64) {
-                    out.pop();
-                }
-                if (e3 == 64) {
-                    out.pop();
-                }
-                return out;
-            }
-        }
-        var image = data.data.base64;
-        image = decode_base64(image);
-        $quixe.prepare(image, {});
-        $quixe.init();
-    }
-
-    function appController($http, $quixe)
+    function appController($http, $quixe, localStorageService)
     {
         var ctrl = this;
         var src = 'stories/fyretester.ulx.json';
+        var save;
 
         this.buffer = '';
         var readkey = false;
+
+        this.selectedSave = null;
 
         this.send = function ()
         {
@@ -81,9 +24,48 @@
             this.input = '';
         };
 
+
+        var refreshSaveList = function ()
+        {
+            ctrl.saves = localStorageService.keys();
+        };
+
+        refreshSaveList();
+
+        this.save = function ()
+        {
+            ctrl.input = 'save';
+            ctrl.send();
+        };
+
+        this.load = function ()
+        {
+            $quixe.restore_state(localStorageService.get(ctrl.selectedSave));
+            ctrl.selectedSave = null;
+            ctrl.buffer = '';
+        };
+
         $http.get(src).then(function (data)
         {
-            load($quixe, data);
+            $quixe.load(data);
+        });
+
+
+        $quixe.on('save', function ()
+        {
+            localStorageService.set(new Date().toString(), $quixe.get_state());
+            refreshSaveList();
+        });
+
+        $quixe.on('load', function ()
+        {
+
+            ctrl.selectedSave = ctrl.selectedSave || ctrl.saves[ ctrl.saves.length - 1 ];
+            if (!ctrl.selectedSave) {
+                return;
+            }
+            $quixe.restore_state(localStorageService.get(ctrl.selectedSave));
+            ctrl.selectedSave = null;
         });
 
         $quixe.on('ready', function (data)
