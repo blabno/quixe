@@ -9,18 +9,19 @@
         var save;
 
         this.buffer = '';
-        var readkey = false;
+        this.readkey = false;
 
         this.selectedSave = null;
 
-        this.send = function ()
+        this.send = function (input)
         {
-            if (readkey) {
-                $quixe.readkey_resume(this.input.charCodeAt(0));
+            input = input || this.input;
+            if (this.readkey) {
+                $quixe.readkey_resume(input.charCodeAt(0));
             } else {
-                $quixe.readline_resume(this.input);
+                $quixe.readline_resume(input);
             }
-            readkey = false;
+            this.readkey = false;
             this.input = '';
         };
 
@@ -43,6 +44,7 @@
             $quixe.restore_state(localStorageService.get(ctrl.selectedSave));
             ctrl.selectedSave = null;
             ctrl.buffer = '';
+            this.send('sendingSthBecauseQuixeExpectSth');
         };
 
         $http.get(src).then(function (data)
@@ -60,7 +62,7 @@
         $quixe.on('load', function ()
         {
 
-            ctrl.selectedSave = ctrl.selectedSave || ctrl.saves[ ctrl.saves.length - 1 ];
+            ctrl.selectedSave = ctrl.selectedSave || ctrl.saves[ctrl.saves.length - 1];
             if (!ctrl.selectedSave) {
                 return;
             }
@@ -85,7 +87,7 @@
 
         $quixe.on('readkey', function ()
         {
-            readkey = true;
+            ctrl.readkey = true;
             console.log('readkey');
         });
     }

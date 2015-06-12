@@ -19,9 +19,9 @@
 
 <form ng-submit="app.send()" novalidate>
     <input ng-model="app.input"/>
-    <input type="button" ng-click="app.save()" value="save">
-    <input type="button" ng-click="app.load()" value="load">
-    <select ng-model="app.selectedSave">
+    <input type="button" ng-click="app.save()" value="save" ng-disabled="app.readkey">
+    <input type="button" ng-click="app.load()" value="load" ng-disabled="app.readkey || !app.saves.length || !app.selectedSave">
+    <select ng-model="app.selectedSave" ng-disabled="app.readkey || !app.saves.length">
         <option ng-repeat="save in app.saves">{{save}}</option>
     </select>
 </form>
