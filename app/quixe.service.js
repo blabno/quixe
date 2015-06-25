@@ -2,13 +2,8 @@
  * Designed by Andrew Plotkin <erkyrath@eblong.com>
  * <http://eblong.com/zarf/glulx/quixe/>
  * 
- * This Javascript library is copyright 2010-2013 by Andrew Plotkin. You may
- * copy and distribute it freely, by any means and under any conditions,
- * as long as the code and documentation is not changed. You may also
- * incorporate this code into your own program and distribute that, or
- * modify this code and use and distribute the modified version, as long
- * as you retain a notice in your program or documentation which mentions
- * my name and the URL shown above.
+ * This Javascript library is copyright 2010-2015 by Andrew Plotkin.
+ * It is distributed under the MIT license; see the "LICENSE" file.
  *
  * For documentation, see the README.txt or the web page noted above.
  * For information on getting Quixe installed on a web page, see the
@@ -47,10 +42,15 @@
  */
 
 // ### Optimizations I have not yet tried:
+// Using JS array types. This didn't prove to be a speedup a few years
+//   ago, but maybe engines have improved. The raw Blorb loading delay
+//   might also benefit from this.
 // Change memory to an array of 4-byte values. Inline Mem4 and Mem4W when
 //   address is known to be aligned.
 // Inline Mem1 wherever possible.
-// Is "x instanceof Function" efficient? Should compile_string return a 
+// Compile "@mul 2 x" amd "@mul x 2" as a bit-shift (similarly other
+//   power-of-2 constants).
+// Is "x instanceof Function" efficient? Should compile_string return a
 //   tiny tagged object instead?
 // Probably don't want to cache string-functions in filter mode.
 // If a compiled path has no iosys dependencies, we could cache it in
@@ -58,7 +58,6 @@
 // Also: put in debug asserts for valid stack values (at push/pop)
 //   (check isFinite and non-negative)
 // Should we be caching arrays instead of strings?
-// Replace eval() with Function(), providing external APIs to make it work.
 
 /* Put everything inside the Quixe namespace. */
 
@@ -66,6 +65,9 @@
 
     function quixe()
     {
+        /* Create the "self" object. (No relation to the Inform "self" global.) */
+        var self = {};
+
         function load(data)
         {
             var decode_base64;
@@ -273,7 +275,7 @@
          be called first. Sorry about that.)
          */
         function quixe_init() {
-            if (vm_started) {
+            if (self.vm_started) {
                 $quixe.fatal_error("Quixe was inited twice!");
                 return;
             }
@@ -299,7 +301,7 @@
          */
         function quixe_resume() {
             try {
-                done_executing = vm_stopped;
+                self.done_executing = self.vm_stopped;
                 execute_loop();
             }
             catch (ex) {
@@ -390,6 +392,23 @@
             qlog("VM stack dump: " + ls.join(", "));
         }
 
+        /* Polyfill for Math.imul, if necessary. (This affects the global Math
+           namespace at load time, which is ugly, but only on ancient browsers.)
+        */
+        if (Math.imul === undefined) {
+            qlog("Polyfilling Math.imul().");
+            /* Code from: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/imul */
+            Math.imul = function(a, b) {
+                var ah = (a >>> 16) & 0xffff;
+                var al = a & 0xffff;
+                var bh = (b >>> 16) & 0xffff;
+                var bl = b & 0xffff;
+                // the shift by 0 fixes the sign on the high part
+                // the final |0 converts the unsigned value into a signed value
+                return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0)|0);
+            };
+        }
+
         /* Fast char-to-hex and char-to-quoted-char conversion tables.
          setup_bytestring_table() is called once, at startup time.
          */
@@ -452,6 +471,9 @@
             return (memmap[addr] * 0x1000000) + (memmap[addr+1] * 0x10000)
                     + (memmap[addr+2] * 0x100) + (memmap[addr+3]);
         }
+        function MemSlice(addr, length) {
+            return memmap.slice(addr, addr + length);
+        }
         function MemW1(addr, val) {
             // ignore high bytes if necessary
             memmap[addr] = val & 0xFF;
@@ -467,6 +489,14 @@
             memmap[addr+2] = (val >> 8) & 0xFF;
             memmap[addr+3] = val & 0xFF;
         }
+
+        self.Mem1 = Mem1;
+        self.Mem2 = Mem2;
+        self.Mem4 = Mem4;
+        self.MemSlice = MemSlice;
+        self.MemW1 = MemW1;
+        self.MemW2 = MemW2;
+        self.MemW4 = MemW4;
 
         function BytePushString(arr, str) {
             for (var ix = 0; ix < str.length; ix++) {
@@ -520,54 +550,54 @@
 
         function ReadArgByte(addr) {
             if (addr == 0xffffffff)
-                return frame.valstack.pop() & 0xFF;
+                return self.frame.valstack.pop() & 0xFF;
             else
                 return Mem1(addr);
         }
 
         function WriteArgByte(addr, val) {
             if (addr == 0xffffffff)
-                frame.valstack.push(val & 0xFF);
+                self.frame.valstack.push(val & 0xFF);
             else
                 MemW1(addr, val);
         }
 
         function ReadArgWord(addr) {
             if (addr == 0xffffffff)
-                return frame.valstack.pop();
+                return self.frame.valstack.pop();
             else
                 return Mem4(addr);
         }
 
         function WriteArgWord(addr, val) {
             if (addr == 0xffffffff)
-                frame.valstack.push(val);
+                self.frame.valstack.push(val);
             else
                 MemW4(addr, val);
         }
 
         function ReadStructField(addr, fieldnum) {
             if (addr == 0xffffffff)
-                return frame.valstack.pop();
+                return self.frame.valstack.pop();
             else
                 return Mem4(addr + 4*fieldnum);
         }
 
         function WriteStructField(addr, fieldnum, val) {
             if (addr == 0xffffffff)
-                frame.valstack.push(val);
+                self.frame.valstack.push(val);
             else
                 MemW4(addr + 4*fieldnum, val);
         }
 
         /* GiDispa calls this, right before resuming execution at the end of a
-         blocking glk call. The value passed in is the result of the glk
+         blocking Glk call. The value passed in is the result of the Glk
          call, which may have to be stored in a local variable or wherever.
          (This is only really relevant for glk_fileref_create_by_prompt(),
-         since it's the only non-void blocking glk call.)
+         since it's the only non-void blocking Glk call.)
          */
         function SetResumeStore(val) {
-            resumevalue = val;
+            self.resumevalue = val;
         }
 
         /* Convert a 32-bit Unicode value to a JS string. */
@@ -642,31 +672,43 @@
             qlog(msg);//###debug
             throw(msg);
         }
+        self.fatal_error = fatal_error;
 
         /* Turn a string containing JS statements into a function object that
-         executes those statements. If an arg is provided, it becomes the
-         function argument. (It can also be a comma-separated list of
-         arguments, if you want more than one.)
+           executes those statements. The funcname is unfortunately not used.
+           (This function used to use eval(), which let you sneak the funcname
+           in for debugging purposes.)
 
-         This uses eval(), rather than Function(), because it needs to
-         return a closure inside the Quixe environment. (All the generated
-         code assumes that it has the VM's internal variables in scope.)
-         */
-        function make_code(val, arg) {
-            if (arg === undefined)
-                eval("function _func() {\n" + val + "\n}");
+           The function runs in global scope, rather than our Quixe environment.
+           Private Quixe variables are not available. To work around this, the
+           function's first argument must be "self"; the caller must pass in the
+           global self object.
+
+           If arg1, arg2 are provided, they become additional function arguments.
+           (Currently limited to two.)
+        */
+        function make_code(val, funcname, arg1, arg2) {
+            var func;
+            if (funcname === undefined)
+                funcname = '_func';
+            if (arg1 === undefined)
+                func = new Function('self', val);
+            else if (arg2 === undefined)
+                func = new Function('self', arg1, val);
             else
-                eval("function _func("+arg+") {\n" + val + "\n}");
-            return _func;
+                func = new Function('self', arg1, arg2, val);
+            return func;
         }
 
-        /* The VMFunc class: Everything we know about a function. This includes the
-         layout of the local variables, the compiled paths for various start points
-         within the function, and the addresses known to be start points.
+        /* Constructor: VMFunc
 
-         If the function is not in ROM, we still create this, but we will not
-         add it to the permanent vmfunc_table.
-         */
+           Everything we know about a function. This includes the layout of the local
+           variables, the compiled paths for various start points within the function,
+           and the addresses known to be start points.
+
+           If the function is not in ROM, we still create this, but we will not
+           add it to the permanent vmfunc_table.
+        */
         function VMFunc(funcaddr, startpc, localsformat, rawformat) {
             if (!funcaddr) {
                 this.funcaddr = null;
@@ -729,7 +771,9 @@
             this.locallen = locallen;
         }
 
-        /* One stack frame on the execution stack. This includes local variables
+        /* Constructor: StackFrame
+
+           One stack frame on the execution stack. This includes local variables
          and the value stack. It does not contain the spec-defined byte sequence
          for the stack frame; we generate that at save time.
 
@@ -889,7 +933,9 @@
             return frame;
         }
 
-        /* Represents all the cached string-table information for when stringtable
+        /* Constructor: VMTextEnv
+
+           Represents all the cached string-table information for when stringtable
          is addr. This includes the decoding table, and the compiled strings
          for each address that's been printed.
 
@@ -918,6 +964,7 @@
 
         /* This is called once, at startup time. */
         function setup_operandlist_table() {
+            /* Constructor: OperandList */
             function OperandList(formlist, argsize) {
                 this.argsize = (argsize ? argsize : 4);
                 this.numops = formlist.length;
@@ -1101,7 +1148,7 @@
 
         /* Some utility functions for opcode handlers. */
 
-        var funcop_cache = {};
+        self.funcop_cache = {};
 
         /* Return a Javascript literal representing a funcop. The funcop can be used
          later with store_operand_by_funcop(). For efficiency, this represents a
@@ -1126,13 +1173,13 @@
             if (funcop.addr != null)
                 key = key + "a" + funcop.addr;
 
-            if (funcop_cache.key)
-                return "funcop_cache."+key;
+            if (self.funcop_cache.key)
+                return "self.funcop_cache."+key;
 
             var obj = { key: key,
                 mode: funcop.mode, argsize: funcop.argsize, addr: funcop.addr };
-            funcop_cache[key] = obj;
-            return "funcop_cache."+key;
+            self.funcop_cache[key] = obj;
+            return "self.funcop_cache."+key;
         }
 
         /* Store the result of an opcode, using the information specified in
@@ -1206,25 +1253,25 @@
                     store_offloc_value(context, funcop.addr, undefined);
                     /* Store directly to the locals array. */
                     if (funcop.argsize == 4) {
-                        context.code.push("frame.locals["+funcop.addr+"]=("+operand+");");
+                        context.code.push("self.frame.locals["+funcop.addr+"]=("+operand+");");
                     }
                     else if (funcop.argsize == 2) {
-                        context.code.push("frame.locals["+funcop.addr+"]=(0xffff &"+operand+");");
+                        context.code.push("self.frame.locals["+funcop.addr+"]=(0xffff &"+operand+");");
                     }
                     else {
-                        context.code.push("frame.locals["+funcop.addr+"]=(0xff &"+operand+");");
+                        context.code.push("self.frame.locals["+funcop.addr+"]=(0xff &"+operand+");");
                     }
                     return;
 
                 case 15: /* The main-memory cases. */
                     if (funcop.argsize == 4) {
-                        context.code.push("MemW4("+funcop.addr+","+operand+");");
+                        context.code.push("self.MemW4("+funcop.addr+","+operand+");");
                     }
                     else if (funcop.argsize == 2) {
-                        context.code.push("MemW2("+funcop.addr+","+operand+");");
+                        context.code.push("self.MemW2("+funcop.addr+","+operand+");");
                     }
                     else {
-                        context.code.push("MemW1("+funcop.addr+","+operand+");");
+                        context.code.push("self.MemW1("+funcop.addr+","+operand+");");
                     }
                     return;
 
@@ -1243,7 +1290,7 @@
         function oputil_push_callstub(context, operand, addr) {
             if (addr === undefined)
                 addr = context.cp;
-            context.code.push("frame.valstack.push("+operand+","+addr+",frame.framestart);");
+            context.code.push("self.frame.valstack.push("+operand+","+addr+",self.frame.framestart);");
         }
 
         /* Conditionally push a type-0x11 call stub. This logically happens at
@@ -1256,7 +1303,7 @@
          */
         function oputil_push_substring_callstub(context) {
             context.code.push("if (!substring) { substring=true;");
-            context.code.push("frame.valstack.push(0x11,0,nextcp,frame.framestart);");
+            context.code.push("self.frame.valstack.push(0x11,0,nextcp,self.frame.framestart);");
             context.code.push("}");
         }
 
@@ -1273,12 +1320,12 @@
             var ix;
             ;;;context.code.push("// unload offstate: " + context.offstack.length + " stack" + (context.offloc.length ? ", plus locs" : "") + (keepstack ? " (conditional)" : "")); //debug
             if (context.offstack.length) {
-                context.code.push("frame.valstack.push("+context.offstack.join(",")+");");
+                context.code.push("self.frame.valstack.push("+context.offstack.join(",")+");");
             }
             if (context.offloc.length) {
                 for (ix=0; ix<context.offloc.length; ix++) {
                     if (context.offloc[ix] !== undefined && context.offlocdirty[ix]) {
-                        context.code.push("frame.locals["+ix+"]="+context.offloc[ix]+";");
+                        context.code.push("self.frame.locals["+ix+"]="+context.offloc[ix]+";");
                     }
                 }
             }
@@ -1366,7 +1413,7 @@
                 return ""+decode_float(val);
             }
 
-            val = "decode_float("+operand+")";
+            val = "self.decode_float("+operand+")";
             if (hold) {
                 var holdvar = alloc_holdvar(context);
                 context.code.push(holdvar+"="+val+";");
@@ -1395,24 +1442,24 @@
                     else {
                         ;;;context.code.push("// ignoring offstack for conditional return: " + context.offstack.length); //debug
                     }
-                    context.code.push("leave_function();");
-                    context.code.push("pop_callstub("+val+");");
+                    context.code.push("if (self.leave_function()) return self.VMStopped;");
+                    context.code.push("self.pop_callstub("+val+");");
                 }
                 else {
                     oputil_unload_offstate(context, !unconditional);
                     var newpc = (context.cp+val-2) >>>0;
-                    context.code.push("pc = "+newpc+";");
+                    context.code.push("self.pc = "+newpc+";");
                     context.vmfunc.pathaddrs[newpc] = true;
                 }
             }
             else {
                 oputil_unload_offstate(context, !unconditional);
                 context.code.push("if (("+operand+")==0 || ("+operand+")==1) {");
-                context.code.push("leave_function();");
-                context.code.push("pop_callstub("+operand+");");
+                context.code.push("if (self.leave_function()) return self.VMStopped;");
+                context.code.push("self.pop_callstub("+operand+");");
                 context.code.push("}");
                 context.code.push("else {");
-                context.code.push("pc = ("+context.cp+"+("+operand+")-2) >>>0;");
+                context.code.push("self.pc = ("+context.cp+"+("+operand+")-2) >>>0;");
                 context.code.push("}");
             }
             context.code.push("return;");
@@ -1447,7 +1494,7 @@
             0x12: function(context, operands) { /* mul */
                 var sign0 = oputil_signify_operand(context, operands[0]);
                 var sign1 = oputil_signify_operand(context, operands[1]);
-                context.code.push(operands[2]+"(("+sign0+")*("+sign1+")) >>>0);");
+                context.code.push(operands[2]+"(Math.imul(("+sign0+"),("+sign1+"))) >>>0);");
             },
 
             0x13: function(context, operands) { /* div */
@@ -1455,7 +1502,7 @@
                 var sign1 = oputil_signify_operand(context, operands[1]);
                 var holdvar = alloc_holdvar(context);
                 context.code.push(holdvar+"=(("+sign0+")/("+sign1+"));");
-                context.code.push("if (!isFinite("+holdvar+")) fatal_error('Division by zero.');");
+                context.code.push("if (!isFinite("+holdvar+")) self.fatal_error('Division by zero.');");
                 context.code.push(operands[2]+"("+holdvar+">=0)?Math.floor("+holdvar+"):(-Math.floor(-"+holdvar+") >>>0));");
             },
 
@@ -1466,7 +1513,7 @@
                 var sign1 = oputil_signify_operand(context, operands[1]);
                 var holdvar = alloc_holdvar(context);
                 context.code.push(holdvar+"=(("+sign0+")%("+sign1+"));");
-                context.code.push("if (!isFinite("+holdvar+")) fatal_error('Modulo division by zero.');");
+                context.code.push("if (!isFinite("+holdvar+")) self.fatal_error('Modulo division by zero.');");
                 context.code.push(operands[2]+holdvar+" >>>0);");
             },
 
@@ -1544,11 +1591,11 @@
             0x104: function(context, operands) { /* jumpabs */
                 if (quot_isconstant(operands[0])) {
                     var newpc = Number(operands[0]);
-                    context.code.push("pc = "+newpc+";");
+                    context.code.push("self.pc = "+newpc+";");
                     context.vmfunc.pathaddrs[newpc] = true;
                 }
                 else {
-                    context.code.push("pc = "+operands[0]+";");
+                    context.code.push("self.pc = "+operands[0]+";");
                 }
                 oputil_unload_offstate(context);
                 context.code.push("return;");
@@ -1642,10 +1689,10 @@
                     for (ix=0; ix<argc; ix++) {
                         if (context.offstack.length) {
                             var holdvar = pop_offstack_holdvar(context);
-                            context.code.push("tempcallargs["+ix+"]="+holdvar+";");
+                            context.code.push("self.tempcallargs["+ix+"]="+holdvar+";");
                         }
                         else {
-                            context.code.push("tempcallargs["+ix+"]=frame.valstack.pop();");
+                            context.code.push("self.tempcallargs["+ix+"]=self.frame.valstack.pop();");
                         }
                     }
                     oputil_unload_offstate(context);
@@ -1653,10 +1700,10 @@
                 else {
                     context.varsused["ix"] = true;
                     oputil_unload_offstate(context);
-                    context.code.push("for (ix=0; ix<"+operands[1]+"; ix++) { tempcallargs[ix]=frame.valstack.pop(); }");
+                    context.code.push("for (ix=0; ix<"+operands[1]+"; ix++) { self.tempcallargs[ix]=self.frame.valstack.pop(); }");
                 }
                 oputil_push_callstub(context, operands[2]);
-                context.code.push("enter_function("+operands[0]+", "+operands[1]+");");
+                context.code.push("self.enter_function("+operands[0]+", "+operands[1]+");");
                 context.code.push("return;");
                 context.path_ends = true;
             },
@@ -1668,10 +1715,10 @@
                     for (ix=0; ix<argc; ix++) {
                         if (context.offstack.length) {
                             var holdvar = pop_offstack_holdvar(context);
-                            context.code.push("tempcallargs["+ix+"]="+holdvar+";");
+                            context.code.push("self.tempcallargs["+ix+"]="+holdvar+";");
                         }
                         else {
-                            context.code.push("tempcallargs["+ix+"]=frame.valstack.pop();");
+                            context.code.push("self.tempcallargs["+ix+"]=self.frame.valstack.pop();");
                         }
                     }
                     oputil_unload_offstate(context);
@@ -1679,12 +1726,12 @@
                 else {
                     context.varsused["ix"] = true;
                     oputil_unload_offstate(context);
-                    context.code.push("for (ix=0; ix<"+operands[1]+"; ix++) { tempcallargs[ix]=frame.valstack.pop(); }");
+                    context.code.push("for (ix=0; ix<"+operands[1]+"; ix++) { self.tempcallargs[ix]=self.frame.valstack.pop(); }");
                 }
                 /* Note that tailcall in the top-level function will not work.
                  But why would you do that? */
-                context.code.push("leave_function();");
-                context.code.push("enter_function("+operands[0]+", "+operands[1]+");");
+                context.code.push("if (self.leave_function()) return self.VMStopped;");
+                context.code.push("self.enter_function("+operands[0]+", "+operands[1]+");");
                 context.code.push("return;");
                 context.path_ends = true;
             },
@@ -1692,37 +1739,37 @@
             0x160: function(context, operands) { /* callf */
                 oputil_unload_offstate(context);
                 oputil_push_callstub(context, operands[1]);
-                context.code.push("enter_function("+operands[0]+", 0);");
+                context.code.push("self.enter_function("+operands[0]+", 0);");
                 context.code.push("return;");
                 context.path_ends = true;
             },
 
             0x161: function(context, operands) { /* callfi */
                 oputil_unload_offstate(context);
-                context.code.push("tempcallargs[0]=("+operands[1]+");");
+                context.code.push("self.tempcallargs[0]=("+operands[1]+");");
                 oputil_push_callstub(context, operands[2]);
-                context.code.push("enter_function("+operands[0]+", 1);");
+                context.code.push("self.enter_function("+operands[0]+", 1);");
                 context.code.push("return;");
                 context.path_ends = true;
             },
 
             0x162: function(context, operands) { /* callfii */
                 oputil_unload_offstate(context);
-                context.code.push("tempcallargs[0]=("+operands[1]+");");
-                context.code.push("tempcallargs[1]=("+operands[2]+");");
+                context.code.push("self.tempcallargs[0]=("+operands[1]+");");
+                context.code.push("self.tempcallargs[1]=("+operands[2]+");");
                 oputil_push_callstub(context, operands[3]);
-                context.code.push("enter_function("+operands[0]+", 2);");
+                context.code.push("self.enter_function("+operands[0]+", 2);");
                 context.code.push("return;");
                 context.path_ends = true;
             },
 
             0x163: function(context, operands) { /* callfiii */
                 oputil_unload_offstate(context);
-                context.code.push("tempcallargs[0]=("+operands[1]+");");
-                context.code.push("tempcallargs[1]=("+operands[2]+");");
-                context.code.push("tempcallargs[2]=("+operands[3]+");");
+                context.code.push("self.tempcallargs[0]=("+operands[1]+");");
+                context.code.push("self.tempcallargs[1]=("+operands[2]+");");
+                context.code.push("self.tempcallargs[2]=("+operands[3]+");");
                 oputil_push_callstub(context, operands[4]);
-                context.code.push("enter_function("+operands[0]+", 3);");
+                context.code.push("self.enter_function("+operands[0]+", 3);");
                 context.code.push("return;");
                 context.path_ends = true;
             },
@@ -1734,8 +1781,8 @@
                 context.offstack.length = 0;
                 context.offloc.length = 0;
                 context.offlocdirty.length = 0;
-                context.code.push("leave_function();");
-                context.code.push("pop_callstub("+operands[0]+");");
+                context.code.push("if (self.leave_function()) return self.VMStopped;");
+                context.code.push("self.pop_callstub("+operands[0]+");");
                 context.code.push("return;");
                 context.path_ends = true;
             },
@@ -1743,7 +1790,7 @@
             0x32: function(context, operands) { /* catch */
                 oputil_unload_offstate(context);
                 oputil_push_callstub(context, operands[0]);
-                context.code.push("store_operand("+operands[0]+",frame.framestart+frame.framelen+4*frame.valstack.length);");
+                context.code.push("self.store_operand("+operands[0]+",self.frame.framestart+self.frame.framelen+4*self.frame.valstack.length);");
                 oputil_perform_jump(context, operands[1], true);
                 context.path_ends = true;
             },
@@ -1755,8 +1802,8 @@
                 context.offstack.length = 0;
                 context.offloc.length = 0;
                 context.offlocdirty.length = 0;
-                context.code.push("pop_stack_to("+operands[1]+");");
-                context.code.push("pop_callstub("+operands[0]+");");
+                context.code.push("self.pop_stack_to("+operands[1]+");");
+                context.code.push("self.pop_callstub("+operands[0]+");");
                 context.code.push("return;");
                 context.path_ends = true;
             },
@@ -1803,18 +1850,18 @@
                     if (quot_isconstant(operands[0])) {
                         /* Both operands constant */
                         addr = Number(operands[0]) + Number(operands[1]) * 4;
-                        val = "Mem4("+(addr >>>0)+")";
+                        val = "self.Mem4("+(addr >>>0)+")";
                     }
                     else {
                         var addr = Number(operands[1]) * 4;
                         if (addr)
-                            val = "Mem4(("+operands[0]+"+"+addr+") >>>0)";
+                            val = "self.Mem4(("+operands[0]+"+"+addr+") >>>0)";
                         else
-                            val = "Mem4("+operands[0]+")";
+                            val = "self.Mem4("+operands[0]+")";
                     }
                 }
                 else {
-                    val = "Mem4(("+operands[0]+"+4*"+operands[1]+") >>>0)";
+                    val = "self.Mem4(("+operands[0]+"+4*"+operands[1]+") >>>0)";
                 }
                 context.code.push(operands[2]+val+");");
             },
@@ -1825,18 +1872,18 @@
                     if (quot_isconstant(operands[0])) {
                         /* Both operands constant */
                         addr = Number(operands[0]) + Number(operands[1]) * 2;
-                        val = "Mem2("+(addr >>>0)+")";
+                        val = "self.Mem2("+(addr >>>0)+")";
                     }
                     else {
                         var addr = Number(operands[1]) * 2;
                         if (addr)
-                            val = "Mem2(("+operands[0]+"+"+addr+") >>>0)";
+                            val = "self.Mem2(("+operands[0]+"+"+addr+") >>>0)";
                         else
-                            val = "Mem2("+operands[0]+")";
+                            val = "self.Mem2("+operands[0]+")";
                     }
                 }
                 else {
-                    val = "Mem2(("+operands[0]+"+2*"+operands[1]+") >>>0)";
+                    val = "self.Mem2(("+operands[0]+"+2*"+operands[1]+") >>>0)";
                 }
                 context.code.push(operands[2]+val+");");
             },
@@ -1847,18 +1894,18 @@
                     if (quot_isconstant(operands[0])) {
                         /* Both operands constant */
                         addr = Number(operands[0]) + Number(operands[1]);
-                        val = "Mem1("+(addr >>>0)+")";
+                        val = "self.Mem1("+(addr >>>0)+")";
                     }
                     else {
                         var addr = Number(operands[1]);
                         if (addr)
-                            val = "Mem1(("+operands[0]+"+"+addr+") >>>0)";
+                            val = "self.Mem1(("+operands[0]+"+"+addr+") >>>0)";
                         else
-                            val = "Mem1("+operands[0]+")";
+                            val = "self.Mem1("+operands[0]+")";
                     }
                 }
                 else {
-                    val = "Mem1(("+operands[0]+"+"+operands[1]+") >>>0)";
+                    val = "self.Mem1(("+operands[0]+"+"+operands[1]+") >>>0)";
                 }
                 context.code.push(operands[2]+val+");");
             },
@@ -1882,7 +1929,7 @@
                 else {
                     val = "("+operands[0]+"+4*"+operands[1]+") >>>0"+",";
                 }
-                context.code.push("MemW4("+val+operands[2]+")"+";");
+                context.code.push("self.MemW4("+val+operands[2]+")"+";");
             },
 
             0x4d: function(context, operands) { /* astores */
@@ -1904,7 +1951,7 @@
                 else {
                     val = "("+operands[0]+"+2*"+operands[1]+") >>>0"+",";
                 }
-                context.code.push("MemW2("+val+operands[2]+")"+";");
+                context.code.push("self.MemW2("+val+operands[2]+")"+";");
             },
 
             0x4e: function(context, operands) { /* astoreb */
@@ -1926,7 +1973,7 @@
                 else {
                     val = "("+operands[0]+"+"+operands[1]+") >>>0"+",";
                 }
-                context.code.push("MemW1("+val+operands[2]+")"+";");
+                context.code.push("self.MemW1("+val+operands[2]+")"+";");
             },
 
             0x4b: function(context, operands) { /* aloadbit */
@@ -1954,7 +2001,7 @@
                             addrx = (operands[0]+"-"+(1+((-1-bitnum)>>3)));
                         }
                     }
-                    context.code.push(operands[2]+"(Mem1("+addrx+") & "+(1<<bitx)+")?1:0);");
+                    context.code.push(operands[2]+"(self.Mem1("+addrx+") & "+(1<<bitx)+")?1:0);");
                 }
                 else {
                     context.varsused["bitx"] = true;
@@ -1963,7 +2010,7 @@
                     context.code.push("bitx = "+sign1+"&7;");
                     context.code.push("if ("+sign1+">=0) addrx = "+operands[0]+" + ("+sign1+">>3);");
                     context.code.push("else addrx = "+operands[0]+" - (1+((-1-("+sign1+"))>>3));");
-                    context.code.push(operands[2]+"(Mem1(addrx) & (1<<bitx))?1:0);");
+                    context.code.push(operands[2]+"(self.Mem1(addrx) & (1<<bitx))?1:0);");
                 }
             },
 
@@ -2006,13 +2053,13 @@
                 }
                 if (quot_isconstant(operands[2])) {
                     if (Number(operands[2]))
-                        context.code.push("MemW1("+addrx+", Mem1("+addrx+") | "+mask+");");
+                        context.code.push("self.MemW1("+addrx+", self.Mem1("+addrx+") | "+mask+");");
                     else
-                        context.code.push("MemW1("+addrx+", Mem1("+addrx+") & ~("+mask+"));");
+                        context.code.push("self.MemW1("+addrx+", self.Mem1("+addrx+") & ~("+mask+"));");
                 }
                 else {
-                    context.code.push("if ("+operands[2]+") MemW1("+addrx+", Mem1("+addrx+") | "+mask+");");
-                    context.code.push("else MemW1("+addrx+", Mem1("+addrx+") & ~("+mask+"));");
+                    context.code.push("if ("+operands[2]+") self.MemW1("+addrx+", self.Mem1("+addrx+") | "+mask+");");
+                    context.code.push("else self.MemW1("+addrx+", self.Mem1("+addrx+") & ~("+mask+"));");
                 }
             },
 
@@ -2020,9 +2067,9 @@
                 var val;
                 var count = context.offstack.length;
                 if (count)
-                    val = "frame.valstack.length+" + count;
+                    val = "self.frame.valstack.length+" + count;
                 else
-                    val = "frame.valstack.length";
+                    val = "self.frame.valstack.length";
                 oputil_store(context, operands[0], val);
             },
 
@@ -2034,12 +2081,12 @@
                         val = context.offstack[context.offstack.length-(pos+1)];
                     }
                     else {
-                        val = "frame.valstack[frame.valstack.length-"+((pos+1)-context.offstack.length)+"]";
+                        val = "self.frame.valstack[self.frame.valstack.length-"+((pos+1)-context.offstack.length)+"]";
                     }
                 }
                 else {
                     oputil_unload_offstate(context);
-                    val = "frame.valstack[frame.valstack.length-("+operands[0]+"+1)]";
+                    val = "self.frame.valstack[self.frame.valstack.length-("+operands[0]+"+1)]";
                 }
                 oputil_store(context, operands[1], val);
             },
@@ -2071,9 +2118,9 @@
                 context.code.push("vals1 = "+sign0+" - (-("+sign1+")) % "+sign0+";");
                 context.code.push("}");
                 context.code.push("if (vals1) {");
-                context.code.push("pos = frame.valstack.length - "+sign0+";");
-                context.code.push("roll = frame.valstack.slice(frame.valstack.length-vals1, frame.valstack.length).concat(frame.valstack.slice(pos, frame.valstack.length-vals1));");
-                context.code.push("for (ix=0; ix<"+sign0+"; ix++) { frame.valstack[pos+ix] = roll[ix]; }");
+                context.code.push("pos = self.frame.valstack.length - "+sign0+";");
+                context.code.push("roll = self.frame.valstack.slice(self.frame.valstack.length-vals1, self.frame.valstack.length).concat(self.frame.valstack.slice(pos, self.frame.valstack.length-vals1));");
+                context.code.push("for (ix=0; ix<"+sign0+"; ix++) { self.frame.valstack[pos+ix] = roll[ix]; }");
                 context.code.push("roll = undefined;");
                 context.code.push("}");
                 context.code.push("}");
@@ -2087,32 +2134,32 @@
                     for (ix=0; ix<pos; ix++) {
                         holdvar = alloc_holdvar(context, true);
                         context.offstack.push(holdvar);
-                        context.code.push(holdvar+"=frame.valstack[frame.valstack.length-"+(pos-ix)+"];");
+                        context.code.push(holdvar+"=self.frame.valstack[self.frame.valstack.length-"+(pos-ix)+"];");
                     }
                 }
                 else {
                     context.varsused["ix"] = true;
                     context.varsused["jx"] = true;
-                    context.code.push("jx = frame.valstack.length-("+operands[0]+");");
-                    context.code.push("for (ix=0; ix<"+operands[0]+"; ix++) { frame.valstack.push(frame.valstack[jx+ix]); }");
+                    context.code.push("jx = self.frame.valstack.length-("+operands[0]+");");
+                    context.code.push("for (ix=0; ix<"+operands[0]+"; ix++) { self.frame.valstack.push(self.frame.valstack[jx+ix]); }");
                 }
             },
 
             0x100: function(context, operands) { /* gestalt */
-                var expr = "do_gestalt(("+operands[0]+"),("+operands[1]+"))";
+                var expr = "self.do_gestalt(("+operands[0]+"),("+operands[1]+"))";
                 context.code.push(operands[2]+expr+");");
             },
 
             0x101: function(context, operands) { /* debugtrap */
-                context.code.push("fatal_error('User debugtrap encountered.', "+operands[0]+");");
+                context.code.push("self.fatal_error('User debugtrap encountered.', "+operands[0]+");");
             },
 
             0x102: function(context, operands) { /* getmemsize */
-                context.code.push(operands[0]+"endmem);");
+                context.code.push(operands[0]+"self.endmem);");
             },
 
             0x103: function(context, operands) { /* setmemsize */
-                context.code.push("change_memsize("+operands[0]+",false);");
+                context.code.push("self.change_memsize("+operands[0]+",false);");
                 /* An allocation failure is a fatal error, so we always return
                  success. */
                 context.code.push(operands[1]+"0);");
@@ -2126,28 +2173,28 @@
                 if (quot_isconstant(operands[0])) {
                     var val = Number(operands[0]) & 0xffffffff; /* signed */
                     if (val == 0)
-                        expr = "(Math.floor(random_func() * 0x10000) | (Math.floor(random_func() * 0x10000) << 16)) >>>0";
+                        expr = "(Math.floor(self.random_func() * 0x10000) | (Math.floor(self.random_func() * 0x10000) << 16)) >>>0";
                     else if (val > 0)
-                        expr = "Math.floor(random_func() * "+val+")";
+                        expr = "Math.floor(self.random_func() * "+val+")";
                     else
-                        expr = "-Math.floor(random_func() * "+(-val)+")";
+                        expr = "-Math.floor(self.random_func() * "+(-val)+")";
                 }
                 else {
                     var sign0 = oputil_signify_operand(context, operands[0], true);
                     var holdvar = alloc_holdvar(context);
                     expr = holdvar;
                     context.code.push("if ("+sign0+" > 0)");
-                    context.code.push(holdvar+" = Math.floor(random_func() * "+sign0+");");
+                    context.code.push(holdvar+" = Math.floor(self.random_func() * "+sign0+");");
                     context.code.push("else if ("+sign0+" < 0)");
-                    context.code.push(holdvar+" = -Math.floor(random_func() * -"+sign0+");");
+                    context.code.push(holdvar+" = -Math.floor(self.random_func() * -"+sign0+");");
                     context.code.push("else");
-                    context.code.push(holdvar+" = (Math.floor(random_func() * 0x10000) | (Math.floor(random_func() * 0x10000) << 16)) >>>0;");
+                    context.code.push(holdvar+" = (Math.floor(self.random_func() * 0x10000) | (Math.floor(self.random_func() * 0x10000) << 16)) >>>0;");
                 }
                 context.code.push(operands[1]+expr+");");
             },
 
             0x111: function(context, operands) { /* setrandom */
-                context.code.push("set_random(" + operands[0] + ");");
+                context.code.push("self.set_random(" + operands[0] + ");");
             },
 
             0x120: function(context, operands) { /* quit */
@@ -2156,13 +2203,12 @@
                 context.offstack.length = 0;
                 context.offloc.length = 0;
                 context.offlocdirty.length = 0;
-                context.code.push("done_executing = true; vm_stopped = true;");
-                context.code.push("return;");
+                context.code.push("return self.VMStopped;");
                 context.path_ends = true;
             },
 
             0x121: function(context, operands) { /* verify */
-                context.code.push(operands[0]+"perform_verify());");
+                context.code.push(operands[0]+"self.perform_verify());");
             },
 
             0x122: function(context, operands) { /* restart */
@@ -2171,7 +2217,7 @@
                 context.offstack.length = 0;
                 context.offloc.length = 0;
                 context.offlocdirty.length = 0;
-                context.code.push("vm_restart();");
+                context.code.push("self.vm_restart();");
                 context.code.push("return;");
                 context.path_ends = true;
             },
@@ -2180,23 +2226,23 @@
                 oputil_unload_offstate(context);
                 context.varsused["ix"] = true;
                 oputil_push_callstub(context, operands[1]);
-                context.code.push("ix = vm_save("+operands[0]+");");
-                context.code.push("pop_callstub(ix ? 0 : 1);");
+                context.code.push("ix = self.vm_save("+operands[0]+");");
+                context.code.push("self.pop_callstub(ix ? 0 : 1);");
                 context.code.push("return;");
                 context.path_ends = true;
             },
 
             0x124: function(context, operands) { /* restore */
                 oputil_unload_offstate(context);
-                context.code.push("if (vm_restore("+operands[0]+")) {");
+                context.code.push("if (self.vm_restore("+operands[0]+")) {");
                 /* Succeeded. Pop the call stub that save pushed, using -1
                  to indicate success. */
-                context.code.push("pop_callstub((-1)>>>0);");
+                context.code.push("self.pop_callstub((-1)>>>0);");
                 context.code.push("} else {");
                 /* Failed to restore. Put back the PC, in case it got overwritten. */
                 oputil_store(context, operands[1], "1");
                 oputil_unload_offstate(context); // again
-                context.code.push("pc = "+context.cp+";");
+                context.code.push("self.pc = "+context.cp+";");
                 context.code.push("}");
                 context.code.push("return;");
                 context.path_ends = true;
@@ -2205,34 +2251,34 @@
             0x125: function(context, operands) { /* saveundo */
                 oputil_unload_offstate(context);
                 oputil_push_callstub(context, operands[0]);
-                context.code.push("vm_saveundo();");
+                context.code.push("self.vm_saveundo();");
                 /* Any failure was a fatal error, so we return success. */
-                context.code.push("pop_callstub(0);");
+                context.code.push("self.pop_callstub(0);");
                 context.code.push("return;");
                 context.path_ends = true;
             },
 
             0x126: function(context, operands) { /* restoreundo */
                 oputil_unload_offstate(context);
-                context.code.push("if (vm_restoreundo()) {");
+                context.code.push("if (self.vm_restoreundo()) {");
                 /* Succeeded. Pop the call stub that saveundo pushed, using -1
                  to indicate success. */
-                context.code.push("pop_callstub((-1)>>>0);");
+                context.code.push("self.pop_callstub((-1)>>>0);");
                 context.code.push("} else {");
                 /* Failed to restore. Put back the PC, in case it got overwritten. */
                 oputil_store(context, operands[0], "1");
                 oputil_unload_offstate(context); // again
-                context.code.push("pc = "+context.cp+";");
+                context.code.push("self.pc = "+context.cp+";");
                 context.code.push("}");
                 context.code.push("return;");
                 context.path_ends = true;
             },
 
             0x127: function(context, operands) { /* protect */
-                context.code.push("protectstart="+operands[0]+";");
-                context.code.push("protectend=protectstart+("+operands[1]+");");
-                context.code.push("if (protectstart==protectend) {")
-                context.code.push("  protectstart=0; protectend=0;");
+                context.code.push("self.protectstart="+operands[0]+";");
+                context.code.push("self.protectend=self.protectstart+("+operands[1]+");");
+                context.code.push("if (self.protectstart==self.protectend) {")
+                context.code.push("  self.protectstart=0; self.protectend=0;");
                 context.code.push("}");
             },
 
@@ -2242,7 +2288,7 @@
                 context.varsused["ix"] = true;
                 context.code.push("mlen="+operands[0]+";");
                 context.code.push("maddr="+operands[1]+";");
-                context.code.push("for (ix=0; ix<mlen; ix++, maddr++) MemW1(maddr, 0);");
+                context.code.push("for (ix=0; ix<mlen; ix++, maddr++) self.MemW1(maddr, 0);");
             },
 
             0x171: function(context, operands) { /* mcopy */
@@ -2258,47 +2304,47 @@
                  But for a rarely-used opcode, it's not really worth it.
                  */
                 context.code.push("if (mdest < msrc) {");
-                context.code.push("for (ix=0; ix<mlen; ix++, msrc++, mdest++) MemW1(mdest, Mem1(msrc));");
+                context.code.push("for (ix=0; ix<mlen; ix++, msrc++, mdest++) self.MemW1(mdest, self.Mem1(msrc));");
                 context.code.push("} else {");
                 context.code.push("msrc += (mlen-1); mdest += (mlen-1);");
-                context.code.push("for (ix=0; ix<mlen; ix++, msrc--, mdest--) MemW1(mdest, Mem1(msrc));");
+                context.code.push("for (ix=0; ix<mlen; ix++, msrc--, mdest--) self.MemW1(mdest, self.Mem1(msrc));");
                 context.code.push("}");
             },
 
             0x178: function(context, operands) { /* malloc */
-                var expr = "heap_malloc("+operands[0]+")";
+                var expr = "self.heap_malloc("+operands[0]+")";
                 context.code.push(operands[1]+expr+");");
-                ;;;context.code.push("assert_heap_valid();"); //assert
+                ;;;context.code.push("self.assert_heap_valid();"); //assert
             },
 
             0x179: function(context, operands) { /* mfree */
-                context.code.push("heap_free("+operands[0]+");");
-                ;;;context.code.push("assert_heap_valid();"); //assert
+                context.code.push("self.heap_free("+operands[0]+");");
+                ;;;context.code.push("self.assert_heap_valid();"); //assert
             },
 
             0x180: function(context, operands) { /* accelfunc */
-                context.code.push("accel_address_map["+operands[1]+"] = accel_func_map["+operands[0]+"];");
+                context.code.push("self.accel_address_map["+operands[1]+"] = self.accel_func_map["+operands[0]+"];");
             },
 
             0x181: function(context, operands) { /* accelparam */
                 context.code.push("if ("+operands[0]+" < 9) {");
-                context.code.push("  accel_params["+operands[0]+"] = "+operands[1]+";");
+                context.code.push("  self.accel_params["+operands[0]+"] = "+operands[1]+";");
                 context.code.push("}");
             },
 
 
             0x150: function(context, operands) { /* linearsearch */
-                var expr = "linear_search(("+operands[0]+"),("+operands[1]+"),("+operands[2]+"),("+operands[3]+"),("+operands[4]+"),("+operands[5]+"),("+operands[6]+"))";
+                var expr = "self.linear_search(("+operands[0]+"),("+operands[1]+"),("+operands[2]+"),("+operands[3]+"),("+operands[4]+"),("+operands[5]+"),("+operands[6]+"))";
                 context.code.push(operands[7]+expr+");");
             },
 
             0x151: function(context, operands) { /* binarysearch */
-                var expr = "binary_search(("+operands[0]+"),("+operands[1]+"),("+operands[2]+"),("+operands[3]+"),("+operands[4]+"),("+operands[5]+"),("+operands[6]+"))";
+                var expr = "self.binary_search(("+operands[0]+"),("+operands[1]+"),("+operands[2]+"),("+operands[3]+"),("+operands[4]+"),("+operands[5]+"),("+operands[6]+"))";
                 context.code.push(operands[7]+expr+");");
             },
 
             0x152: function(context, operands) { /* linkedsearch */
-                var expr = "linked_search(("+operands[0]+"),("+operands[1]+"),("+operands[2]+"),("+operands[3]+"),("+operands[4]+"),("+operands[5]+"))";
+                var expr = "self.linked_search(("+operands[0]+"),("+operands[1]+"),("+operands[2]+"),("+operands[3]+"),("+operands[4]+"),("+operands[5]+"))";
                 context.code.push(operands[6]+expr+");");
             },
 
@@ -2307,10 +2353,10 @@
                     case 20: /* channels */
                         if (quot_isconstant(operands[0])) {
                             var val = Number(operands[0]) & 0xff;
-                            context.code.push("instance._outputBuffer.write("+val+");");
+                            context.code.push("self.instance._outputBuffer.write("+val+");");
                         }
                         else {
-                            context.code.push("instance._outputBuffer.write(("+operands[0]+")&0xff);");
+                            context.code.push("self.instance._outputBuffer.write(("+operands[0]+")&0xff);");
                         }
                         break;
                     case 2: /* glk */
@@ -2324,9 +2370,9 @@
                         break;
                     case 1: /* filter */
                         oputil_unload_offstate(context);
-                        context.code.push("tempcallargs[0]=(("+operands[0]+")&0xff);");
+                        context.code.push("self.tempcallargs[0]=(("+operands[0]+")&0xff);");
                         oputil_push_callstub(context, "0,0");
-                        context.code.push("enter_function(iosysrock, 1);");
+                        context.code.push("self.enter_function(self.iosysrock, 1);");
                         context.code.push("return;");
                         context.path_ends = true;
                         break;
@@ -2342,10 +2388,10 @@
                         var sign0 = oputil_signify_operand(context, operands[0]);
                         if (quot_isconstant(operands[0])) {
                             var val = Number(sign0).toString(10);
-                            context.code.push("instance._outputBuffer.write("+QuoteEscapeString(val)+");");
+                            context.code.push("self.instance._outputBuffer.write("+QuoteEscapeString(val)+");");
                         }
                         else {
-                            context.code.push("instance._outputBuffer.write(("+sign0+").toString(10));");
+                            context.code.push("self.instance._outputBuffer.write(("+sign0+").toString(10));");
                         }
                         break;
                     case 2: /* glk */
@@ -2360,7 +2406,7 @@
                         break;
                     case 1: /* filter */
                         oputil_unload_offstate(context);
-                        context.code.push("stream_num("+context.cp+","+operands[0]+", false, 0);");
+                        context.code.push("self.stream_num("+context.cp+","+operands[0]+", false, 0);");
                         /* stream_num always creates a new frame in filter mode. */
                         context.code.push("return;");
                         context.path_ends = true;
@@ -2379,7 +2425,7 @@
                  determined to be a function, we can unload and return.)
                  */
                 oputil_unload_offstate(context);
-                context.code.push("if (stream_string("+context.cp+","+operands[0]+", 0, 0)) return;");
+                context.code.push("if (self.stream_string("+context.cp+","+operands[0]+", 0, 0)) return;");
             },
 
             0x73: function(context, operands) { /* streamunichar */
@@ -2387,10 +2433,10 @@
                     case 20: /* channels */
                         if (quot_isconstant(operands[0])) {
                             var val = Number(operands[0]);
-                            context.code.push("instance._outputBuffer.write("+val+");");
+                            context.code.push("self.instance._outputBuffer.write("+val+");");
                         }
                         else {
-                            context.code.push("instance._outputBuffer.write("+operands[0]+");");
+                            context.code.push("self.instance._outputBuffer.write("+operands[0]+");");
                         }
                         break;
                     case 2: /* glk */
@@ -2404,9 +2450,9 @@
                         break;
                     case 1: /* filter */
                         oputil_unload_offstate(context);
-                        context.code.push("tempcallargs[0]=("+operands[0]+");");
+                        context.code.push("self.tempcallargs[0]=("+operands[0]+");");
                         oputil_push_callstub(context, "0,0");
-                        context.code.push("enter_function(iosysrock, 1);");
+                        context.code.push("self.enter_function(self.iosysrock, 1);");
                         context.code.push("return;");
                         context.path_ends = true;
                         break;
@@ -2417,20 +2463,20 @@
             },
 
             0x140: function(context, operands) { /* getstringtbl */
-                context.code.push(operands[0]+"stringtable)");
+                context.code.push(operands[0]+"self.stringtable)");
             },
 
             0x141: function(context, operands) { /* setstringtbl */
-                context.code.push("set_string_table("+operands[0]+");");
+                context.code.push("self.set_string_table("+operands[0]+");");
             },
 
             0x148: function(context, operands) { /* getiosys */
-                context.code.push(operands[0]+"iosysmode)");
-                context.code.push(operands[1]+"iosysrock)");
+                context.code.push(operands[0]+"self.iosysmode)");
+                context.code.push(operands[1]+"self.iosysrock)");
             },
 
             0x149: function(context, operands) { /* setiosys */
-                context.code.push("set_iosys("+operands[0]+","+operands[1]+");");
+                context.code.push("self.set_iosys("+operands[0]+","+operands[1]+");");
                 if (quot_isconstant(operands[0])) {
                     var val = Number(operands[0]);
                     context.curiosys = val;
@@ -2439,7 +2485,7 @@
                     /* We can't compile with an unknown iosysmode. So, stop
                      compiling. */
                     oputil_unload_offstate(context);
-                    context.code.push("pc = "+context.cp+";");
+                    context.code.push("self.pc = "+context.cp+";");
                     context.code.push("return;");
                     context.path_ends = true;
                 }
@@ -2452,7 +2498,7 @@
                     context.code.push(operands[1]+encode_float(val)+");");
                 }
                 else {
-                    context.code.push(operands[1]+"encode_float("+sign0+"));");
+                    context.code.push(operands[1]+"self.encode_float("+sign0+"));");
                 }
             },
 
@@ -2496,36 +2542,36 @@
 
             0x198: function(context, operands) { /* ceil */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.ceil("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.ceil("+valf+")));");
             },
 
             0x199: function(context, operands) { /* floor */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.floor("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.floor("+valf+")));");
             },
 
             0x1A0: function(context, operands) { /* fadd */
                 var valf0 = oputil_decode_float(context, operands[0]);
                 var valf1 = oputil_decode_float(context, operands[1]);
-                context.code.push(operands[2]+"encode_float("+valf0+" + "+valf1+"));");
+                context.code.push(operands[2]+"self.encode_float("+valf0+" + "+valf1+"));");
             },
 
             0x1A1: function(context, operands) { /* fsub */
                 var valf0 = oputil_decode_float(context, operands[0]);
                 var valf1 = oputil_decode_float(context, operands[1]);
-                context.code.push(operands[2]+"encode_float("+valf0+" - "+valf1+"));");
+                context.code.push(operands[2]+"self.encode_float("+valf0+" - "+valf1+"));");
             },
 
             0x1A2: function(context, operands) { /* fmul */
                 var valf0 = oputil_decode_float(context, operands[0]);
                 var valf1 = oputil_decode_float(context, operands[1]);
-                context.code.push(operands[2]+"encode_float("+valf0+" * "+valf1+"));");
+                context.code.push(operands[2]+"self.encode_float("+valf0+" * "+valf1+"));");
             },
 
             0x1A3: function(context, operands) { /* fdiv */
                 var valf0 = oputil_decode_float(context, operands[0]);
                 var valf1 = oputil_decode_float(context, operands[1]);
-                context.code.push(operands[2]+"encode_float("+valf0+" / "+valf1+"));");
+                context.code.push(operands[2]+"self.encode_float("+valf0+" / "+valf1+"));");
             },
 
             0x1A4: function(context, operands) { /* fmod */
@@ -2534,30 +2580,30 @@
                 context.varsused["modv"] = true;
                 context.varsused["quov"] = true;
                 context.code.push("modv=("+valf0+" % "+valf1+");");
-                context.code.push("quov=encode_float(("+valf0+" - modv) / "+valf1+");");
+                context.code.push("quov=self.encode_float(("+valf0+" - modv) / "+valf1+");");
                 context.code.push("if (quov == 0x0 || quov == 0x80000000) {");
                 /* When the quotient is zero, the sign has been lost in the
                  shuffle. We'll set that by hand, based on the original
                  arguments. */
                 context.code.push("  quov = (("+operands[0]+" ^ "+operands[1]+") & 0x80000000) >>>0;");
                 context.code.push("}");
-                context.code.push(operands[2]+"encode_float(modv));");
+                context.code.push(operands[2]+"self.encode_float(modv));");
                 context.code.push(operands[3]+"quov);");
             },
 
             0x1A8: function(context, operands) { /* sqrt */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.sqrt("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.sqrt("+valf+")));");
             },
 
             0x1A9: function(context, operands) { /* exp */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.exp("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.exp("+valf+")));");
             },
 
             0x1AA: function(context, operands) { /* log */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.log("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.log("+valf+")));");
             },
 
             0x1AB: function(context, operands) { /* pow */
@@ -2571,45 +2617,45 @@
                 /* pow(-1, infinity) is 1 */
                 context.code.push("  valf = 0x3f800000;");
                 context.code.push("} else {");
-                context.code.push("  valf=encode_float(Math.pow("+valf0+", "+valf1+"));");
+                context.code.push("  valf=self.encode_float(Math.pow("+valf0+", "+valf1+"));");
                 context.code.push("}");
                 context.code.push(operands[2]+"valf);");
             },
 
             0x1B0: function(context, operands) { /* sin */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.sin("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.sin("+valf+")));");
             },
 
             0x1B1: function(context, operands) { /* cos */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.cos("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.cos("+valf+")));");
             },
 
             0x1B2: function(context, operands) { /* tan */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.tan("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.tan("+valf+")));");
             },
 
             0x1B3: function(context, operands) { /* asin */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.asin("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.asin("+valf+")));");
             },
 
             0x1B4: function(context, operands) { /* acos */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.acos("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.acos("+valf+")));");
             },
 
             0x1B5: function(context, operands) { /* atan */
                 var valf = oputil_decode_float(context, operands[0]);
-                context.code.push(operands[1]+"encode_float(Math.atan("+valf+")));");
+                context.code.push(operands[1]+"self.encode_float(Math.atan("+valf+")));");
             },
 
             0x1B6: function(context, operands) { /* atan2 */
                 var valf0 = oputil_decode_float(context, operands[0]);
                 var valf1 = oputil_decode_float(context, operands[1]);
-                context.code.push(operands[2]+"encode_float(Math.atan2("+valf0+", "+valf1+")));");
+                context.code.push(operands[2]+"self.encode_float(Math.atan2("+valf0+", "+valf1+")));");
             },
 
             0x1C0: function(context, operands) { /* jfeq */
@@ -2630,7 +2676,7 @@
                     valf2 = "" + decode_float(val & 0x7fffffff);
                 }
                 else {
-                    val = "decode_float(("+operands[2]+") & 0x7fffffff)";
+                    val = "self.decode_float(("+operands[2]+") & 0x7fffffff)";
                     valf2 = alloc_holdvar(context);
                     context.code.push(valf2+"="+val+";");
                 }
@@ -2662,7 +2708,7 @@
                     valf2 = "" + decode_float(val & 0x7fffffff);
                 }
                 else {
-                    val = "decode_float(("+operands[2]+") & 0x7fffffff)";
+                    val = "self.decode_float(("+operands[2]+") & 0x7fffffff)";
                     valf2 = alloc_holdvar(context);
                     context.code.push(valf2+"="+val+";");
                 }
@@ -2726,17 +2772,17 @@
                     mayblock = $quixe.call_may_not_return(Number(operands[0]));
                 else
                     mayblock = true;
-                context.code.push("tempglkargs.length = " + operands[1] + ";");
+                context.code.push("self.tempglkargs.length = " + operands[1] + ";");
                 if (quot_isconstant(operands[1])) {
                     var ix;
                     var argc = Number(operands[1]);
                     for (ix=0; ix<argc; ix++) {
                         if (context.offstack.length) {
                             var holdvar = pop_offstack_holdvar(context);
-                            context.code.push("tempglkargs["+ix+"]="+holdvar+";");
+                            context.code.push("self.tempglkargs["+ix+"]="+holdvar+";");
                         }
                         else {
-                            context.code.push("tempglkargs["+ix+"]=frame.valstack.pop();");
+                            context.code.push("self.tempglkargs["+ix+"]=self.frame.valstack.pop();");
                         }
                     }
                     oputil_unload_offstate(context);
@@ -2744,7 +2790,7 @@
                 else {
                     context.varsused["ix"] = true;
                     oputil_unload_offstate(context);
-                    context.code.push("for (ix=0; ix<"+operands[1]+"; ix++) { tempglkargs[ix]=frame.valstack.pop(); }");
+                    context.code.push("for (ix=0; ix<"+operands[1]+"; ix++) { self.tempglkargs[ix]=self.frame.valstack.pop(); }");
                 }
                 /* In the blocking case, we don't perform a normal store; we write a
                  literal form of operands[2] into a global and get out. Fortunately
@@ -2752,13 +2798,13 @@
                  store. */
                 context.varsused["glkret"] = true;
 //                TODO this might be potential problem, but maybe FYRE does not use this.
-                context.code.push("glkret = $giDispa.get_function("+operands[0]+")(tempglkargs);");
+                context.code.push("glkret = $giDispa.get_function("+operands[0]+")(self.tempglkargs);");
                 if (mayblock) {
                     context.code.push("if (glkret === $glk.DidNotReturn) {");
-                    context.code.push("  resumefuncop = "+oputil_record_funcop(operands[2])+";");
-                    context.code.push("  resumevalue = 0;");
-                    context.code.push("  pc = "+context.cp+";");
-                    context.code.push("  done_executing = true;");
+                    context.code.push("  self.resumefuncop = "+oputil_record_funcop(operands[2])+";");
+                    context.code.push("  self.resumevalue = 0;");
+                    context.code.push("  self.pc = "+context.cp+";");
+                    context.code.push("  self.done_executing = true;");
                     context.code.push("  return;");
                     context.code.push("}");
                 }
@@ -2766,7 +2812,7 @@
             },
 
             0x1000: function(context, operands) { /* fyrecall */
-                context.code.push(operands[3] + "do_fyrecall(" + operands[0] + ", " + operands[1] + ", " + operands[2] + ", " + context.cp + "));");
+                context.code.push(operands[3] + "self.do_fyrecall(" + operands[0] + ", " + operands[1] + ", " + operands[2] + ", " + context.cp + "));");
             }
         }
 
@@ -2774,15 +2820,15 @@
             switch(mode) {
                 case 1: /* ReadLine */
                 case 5: /* ReadKey */
-                    pc = cp;
-                    done_executing = true;
+                    self.pc = cp;
+                    self.done_executing = true;
                     if (mode == 1) {
-                        resumefuncop = null;
-                        resumevalue = { addr: param1, len: param2 };
+                        self.resumefuncop = null;
+                        self.resumevalue = { addr: param1, len: param2 };
                     }
                     else {
-                        resumefuncop = null;
-                        resumevalue = null;
+                        self.resumefuncop = null;
+                        self.resumevalue = null;
                     }
                     instance.trigger('ready', [instance._outputBuffer.flush()]);
                     instance.trigger(mode === 1 ? 'readline' : 'readkey');
@@ -2808,6 +2854,8 @@
                     throw('Unrecognized FyreVM system call #' + operands[0]);
             }
         }
+
+        self.do_fyrecall = do_fyrecall;
 
         /* Select a currently-unused "_hold*" variable, and mark it used.
          If use is true, it's marked "1", meaning it's going onto the offstack
@@ -2910,7 +2958,7 @@
             while (context.offstack.length < count) {
                 holdvar = alloc_holdvar(context, true);
                 context.offstack.unshift(holdvar);
-                context.code.push(holdvar+"=frame.valstack.pop();");
+                context.code.push(holdvar+"=self.frame.valstack.pop();");
             }
         }
 
@@ -3009,7 +3057,7 @@
                             }
                             else {
                                 holdvar = alloc_holdvar(context);
-                                context.code.push(holdvar+"=frame.valstack.pop();");
+                                context.code.push(holdvar+"=self.frame.valstack.pop();");
                                 operands[ix] = holdvar;
                             }
                             continue;
@@ -3061,13 +3109,13 @@
                         }
 
                         if (oplist.argsize == 4) {
-                            value = "frame.locals["+addr+"]";
+                            value = "self.frame.locals["+addr+"]";
                         }
                         else if (oplist.argsize == 2) {
-                            value = "frame.locals["+addr+"] & 0xffff";
+                            value = "self.frame.locals["+addr+"] & 0xffff";
                         }
                         else {
-                            value = "frame.locals["+addr+"] & 0xff";
+                            value = "self.frame.locals["+addr+"] & 0xff";
                         }
                         holdvar = alloc_holdvar(context, true);
                         context.code.push(holdvar+"=("+value+");");
@@ -3114,13 +3162,13 @@
 
                     /* The main-memory cases. */
                     if (oplist.argsize == 4) {
-                        value = "Mem4("+addr+")";
+                        value = "self.Mem4("+addr+")";
                     }
                     else if (oplist.argsize == 2) {
-                        value = "Mem2("+addr+")";
+                        value = "self.Mem2("+addr+")";
                     }
                     else {
-                        value = "Mem1("+addr+")";
+                        value = "self.Mem1("+addr+")";
                     }
                     holdvar = alloc_holdvar(context);
                     context.code.push(holdvar+"=("+value+");");
@@ -3136,7 +3184,7 @@
                                 operands[ix] = pop_offstack_holdvar(context);
                             }
                             else {
-                                operands[ix] = "frame.valstack.pop()";
+                                operands[ix] = "self.frame.valstack.pop()";
                             }
                             continue;
 
@@ -3187,13 +3235,13 @@
                         }
 
                         if (oplist.argsize == 4) {
-                            value = "frame.locals["+addr+"]";
+                            value = "self.frame.locals["+addr+"]";
                         }
                         else if (oplist.argsize == 2) {
-                            value = "frame.locals["+addr+"] & 0xffff";
+                            value = "self.frame.locals["+addr+"] & 0xffff";
                         }
                         else {
-                            value = "frame.locals["+addr+"] & 0xff";
+                            value = "self.frame.locals["+addr+"] & 0xff";
                         }
                         holdvar = alloc_holdvar(context, true);
                         context.code.push(holdvar+"=("+value+");");
@@ -3240,13 +3288,13 @@
 
                     /* The main-memory cases. */
                     if (oplist.argsize == 4) {
-                        value = "Mem4("+addr+")";
+                        value = "self.Mem4("+addr+")";
                     }
                     else if (oplist.argsize == 2) {
-                        value = "Mem2("+addr+")";
+                        value = "self.Mem2("+addr+")";
                     }
                     else {
-                        value = "Mem1("+addr+")";
+                        value = "self.Mem1("+addr+")";
                     }
                     operands[ix] = value;
                     continue;
@@ -3289,11 +3337,11 @@
                         }
                         else if (oplist.argsize == 2) {
                             store_offloc_value(context, addr, undefined);
-                            operands[ix] = "frame.locals["+addr+"]=(0xffff &";
+                            operands[ix] = "self.frame.locals["+addr+"]=(0xffff &";
                         }
                         else {
                             store_offloc_value(context, addr, undefined);
-                            operands[ix] = "frame.locals["+addr+"]=(0xff &";
+                            operands[ix] = "self.frame.locals["+addr+"]=(0xff &";
                         }
                         continue;
                     }
@@ -3335,13 +3383,13 @@
 
                     /* The main-memory cases. */
                     if (oplist.argsize == 4) {
-                        value = "MemW4("+addr+",";
+                        value = "self.MemW4("+addr+",";
                     }
                     else if (oplist.argsize == 2) {
-                        value = "MemW2("+addr+",";
+                        value = "self.MemW2("+addr+",";
                     }
                     else {
-                        value = "MemW1("+addr+",";
+                        value = "self.MemW1("+addr+",";
                     }
                     operands[ix] = value;
                     continue;
@@ -3565,6 +3613,11 @@
          starting there anyhow -- you can't jump into the middle of a JS
          function. So we avoid compiling those opcodes twice.)
 
+         The path function returns the special value VMStopped on @quit or
+         if the top-level function exits. This will stop VM execution.
+         (Note that glk_exit() doesn't cause this -- it technically leaves
+         the VM paused forever rather than stopped.)
+
          After executing a path, the VM state (pc, stack, etc) are set
          appropriately for the end of the path. However, we don't maintain
          that state opcode by opcode *inside* the path.
@@ -3689,7 +3742,7 @@
                  address. If so, no need to compile further. */
                 if (vmfunc.pathaddrs[cp] && !context.path_ends) {
                     ;;;context.code.push("// reached jump-in point"); //debug
-                    context.code.push("pc="+cp+";");
+                    context.code.push("self.pc="+cp+";");
                     oputil_unload_offstate(context);
                     context.code.push("return;");
                     context.path_ends = true;
@@ -3713,7 +3766,7 @@
             }
 
             //qlog("### code at " + startaddr.toString(16) + ":\n" + context.code.join("\n"));
-            return make_code(context.code.join("\n"));
+            return make_code(context.code.join("\n"), "_func_path_"+startaddr);
         }
 
         /* Prepare for execution of a new function. The argcount is the number
@@ -3735,7 +3788,7 @@
             var accelfunc = accel_address_map[addr];
             if (accelfunc !== undefined) {
                 accel_function_calls++; //###stats
-                var val = accelfunc(argcount, tempcallargs);
+                var val = accelfunc(argcount, self.tempcallargs);
                 pop_callstub(val);
                 return;
             }
@@ -3747,23 +3800,23 @@
                     vmfunc_table[addr] = vmfunc;
             }
 
-            pc = vmfunc.startpc;
+            self.pc = vmfunc.startpc;
 
             var newframe = new StackFrame(vmfunc);
             newframe.depth = stack.length;
             if (stack.length == 0)
                 newframe.framestart = 0;
             else
-                newframe.framestart = frame.framestart + frame.framelen + 4*frame.valstack.length;
+                newframe.framestart = self.frame.framestart + self.frame.framelen + 4*self.frame.valstack.length;
             stack.push(newframe);
-            frame = newframe;
+            self.frame = newframe;
 
             if (vmfunc.functype == 0xC0) {
                 /* Push the function arguments on the stack. The locals have already
                  been zeroed. */
                 for (ix=argcount-1; ix >= 0; ix--)
-                    frame.valstack.push(tempcallargs[ix]);
-                frame.valstack.push(argcount);
+                    self.frame.valstack.push(self.tempcallargs[ix]);
+                self.frame.valstack.push(argcount);
             }
             else {
                 /* Copy in function arguments. This is a bit gross, since we have to
@@ -3775,34 +3828,36 @@
                     if (form === undefined)
                         break;
                     if (form.size == 4)
-                        frame.locals[form.pos] = tempcallargs[ix];
+                        self.frame.locals[form.pos] = self.tempcallargs[ix];
                     else if (form.size == 2)
-                        frame.locals[form.pos] = tempcallargs[ix] & 0xFFFF;
+                        self.frame.locals[form.pos] = self.tempcallargs[ix] & 0xFFFF;
                     else if (form.size == 1)
-                        frame.locals[form.pos] = tempcallargs[ix] & 0xFF;
+                        self.frame.locals[form.pos] = self.tempcallargs[ix] & 0xFF;
                 }
             }
 
-            //qlog("### framestart " + frame.framestart + ", filled-in locals " + qobjdump(frame.locals) + ", valstack " + qobjdump(frame.valstack));
+            //qlog("### framestart " + self.frame.framestart + ", filled-in locals " + qobjdump(self.frame.locals) + ", valstack " + qobjdump(self.frame.valstack));
         }
+        self.enter_function = enter_function;
 
         /* Dummy value, thrown as an exception by leave_function(). */
         var ReturnedFromMain = { dummy: 'The top-level function has returned.' };
 
         /* Pop the current call frame off the stack. This is very simple. */
         function leave_function() {
-            var olddepth = frame.depth;
+            var olddepth = self.frame.depth;
 
             stack.pop();
             if (stack.length == 0) {
-                frame = null;
+                self.frame = null;
                 throw ReturnedFromMain;
             }
-            frame = stack[stack.length-1];
+            self.frame = stack[stack.length-1];
 
-            if (frame.depth != olddepth-1)
+            if (self.frame.depth != olddepth-1)
                 fatal_error("Stack inconsistent after function exit.");
         }
+        self.leave_function = leave_function;
 
         /* Pop the stack down until it has length val. Used in the throw opcode. */
         function pop_stack_to(val) {
@@ -3811,19 +3866,20 @@
                 stack.pop();
             if (stack.length == 0)
                 fatal_error("Stack evaporated during throw.");
-            frame = stack[stack.length-1];
+            self.frame = stack[stack.length-1];
 
-            val -= (frame.framestart+frame.framelen);
+            val -= (self.frame.framestart+self.frame.framelen);
             if (val < 0)
                 fatal_error("Attempted to throw below the frame value stack.");
             if (val & 3)
                 fatal_error("Attempted to throw to an unaligned address.");
             val >>>= 2;
-            if (val > frame.valstack.length)
+            if (val > self.frame.valstack.length)
                 fatal_error("Attempted to throw beyond the frame value stack.");
             /* Down to the correct position in the valstack. */
-            frame.valstack.length = val;
+            self.frame.valstack.length = val;
         }
+        self.pop_stack_to = pop_stack_to;
 
         /* Pop a callstub off the stack, and store a value at the appropriate
          location. (When returning from a function, for example, the value is
@@ -3838,13 +3894,13 @@
             if (isNaN(val))
                 fatal_error("Function returned undefined value.");
 
-            var framestart = frame.valstack.pop();
-            if (framestart != frame.framestart)
+            var framestart = self.frame.valstack.pop();
+            if (framestart != self.frame.framestart)
                 fatal_error("Call stub frameptr (" + framestart + ") " +
-                "does not match frame (" + frame.framestart + ")");
-            pc = frame.valstack.pop();
-            destaddr = frame.valstack.pop();
-            desttype = frame.valstack.pop();
+                "does not match frame (" + self.frame.framestart + ")");
+            self.pc = self.frame.valstack.pop();
+            destaddr = self.frame.valstack.pop();
+            desttype = self.frame.valstack.pop();
 
             switch (desttype) {
                 case 0:
@@ -3853,10 +3909,10 @@
                     MemW4(destaddr, val);
                     return;
                 case 2:
-                    frame.locals[destaddr] = val;
+                    self.frame.locals[destaddr] = val;
                     return;
                 case 3:
-                    frame.valstack.push(val);
+                    self.frame.valstack.push(val);
                     return;
 
                 case 0x11:
@@ -3866,31 +3922,32 @@
                 case 0x10:
                     /* This call stub was pushed during a string-decoding operation!
                      We have to restart it. (Note that the return value is discarded.) */
-                    stream_string(0, pc, 0xE1, destaddr);
+                    stream_string(0, self.pc, 0xE1, destaddr);
                     return;
 
                 case 0x12:
                     /* This call stub was pushed during a number-printing operation.
                      Restart that. (Return value discarded.) */
-                    stream_num(0, pc, true, destaddr);
+                    stream_num(0, self.pc, true, destaddr);
                     return;
 
                 case 0x13:
                     /* This call stub was pushed during a C-string printing operation.
                      We have to restart it. (Note that the return value is discarded.) */
-                    stream_string(0, pc, 0xE0, destaddr);
+                    stream_string(0, self.pc, 0xE0, destaddr);
                     return;
 
                 case 0x14:
                     /* This call stub was pushed during a Unicode printing operation.
                      We have to restart it. (Note that the return value is discarded.) */
-                    stream_string(0, pc, 0xE2, destaddr);
+                    stream_string(0, self.pc, 0xE2, destaddr);
                     return;
 
                 default:
                     fatal_error("Unrecognized desttype in callstub.", desttype);
             }
         }
+        self.pop_callstub = pop_callstub;
 
         /* Do the value-storing part of an already-popped call stub. (This is a
          subset of the pop_callstub() work.)
@@ -3903,15 +3960,16 @@
                     MemW4(destaddr, val);
                     return;
                 case 2:
-                    frame.locals[destaddr] = val;
+                    self.frame.locals[destaddr] = val;
                     return;
                 case 3:
-                    frame.valstack.push(val);
+                    self.frame.valstack.push(val);
                     return;
                 default:
                     fatal_error("Unrecognized desttype in callstub.", desttype);
             }
         }
+        self.store_operand = store_operand;
 
         /* Do the value-storing work for a funcop. A null funcop is equivalent
          to mode 0 "discard".
@@ -3923,7 +3981,7 @@
             switch (funcop.mode) {
 
                 case 8: /* push on stack */
-                    frame.valstack.push(val);
+                    self.frame.valstack.push(val);
                     return;
 
                 case 0: /* discard value */
@@ -3931,13 +3989,13 @@
 
                 case 11: /* The local-variable cases. */
                     if (funcop.argsize == 4) {
-                        frame.locals[funcop.addr] = (val);
+                        self.frame.locals[funcop.addr] = (val);
                     }
                     else if (funcop.argsize == 2) {
-                        frame.locals[funcop.addr] = (0xffff & val);
+                        self.frame.locals[funcop.addr] = (0xffff & val);
                     }
                     else {
-                        frame.locals[funcop.addr] = (0xff & val);
+                        self.frame.locals[funcop.addr] = (0xff & val);
                     }
                     return;
 
@@ -3964,13 +4022,14 @@
          */
         function set_random(val) {
             if (val == 0) {
-                random_func = Math.random;
+                self.random_func = Math.random;
             }
             else {
                 srand_set_seed(val);
-                random_func = srand_get_random;
+                self.random_func = srand_get_random;
             }
         }
+        self.set_random = set_random;
 
         /* Here is a pretty standard random-number generator and seed function.
          It is used for the deterministic mode of the Glulx RNG. (In the
@@ -4013,11 +4072,13 @@
             return srand_table[srand_index1] / 0x100000000;
         }
 
-        /* Maps VM addresses to the (native) functions used to accelerate them. */
+/* Maps VM addresses to the (native) functions used to accelerate them. This is also referenced from self. */
         var accel_address_map = {};
+        self.accel_address_map = accel_address_map;
 
         /* A list of the nine parameter fields used by the accelerated functions. */
         var accel_params = [ 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+        self.accel_params = accel_params;
 
         /* The code for all the functions we can accelerate. Remember that there may
          be fewer arguments than expected, and any beyond argc should be taken as
@@ -4031,7 +4092,7 @@
                 var addr = argv[0];
                 if (addr < 36)
                     return 0;
-                if (addr >= endmem)
+                if (addr >= self.endmem)
                     return 0;
 
                 var tb = Mem1(addr);
@@ -4370,6 +4431,7 @@
                 return ((accel_func_map[9](argc, argv)) ? 1 : 0);
             }
         };
+        self.accel_func_map = accel_func_map;
 
         var accel_helper_temp_args = [ 0, 0 ];
 
@@ -4467,7 +4529,7 @@
 
         /* Set the current table address, and rebuild decoding tree. */
         function set_string_table(addr) {
-            if (stringtable == addr)
+            if (self.stringtable == addr)
                 return;
 
             /* Drop the existing cache and tree. */
@@ -4475,23 +4537,23 @@
             vmstring_table = undefined;
 
             /* Set the register. */
-            stringtable = addr;
+            self.stringtable = addr;
 
-            if (stringtable == 0) {
+            if (self.stringtable == 0) {
                 return;
             }
 
-            var textenv = vmtextenv_table[stringtable];
+            var textenv = vmtextenv_table[self.stringtable];
             if (textenv === undefined) {
                 /* We will need a new VMTextEnv. */
                 /* If the table is entirely in ROM, we can build a decoding tree.
                  If not, leave it undefined in the VMTextEnv. */
                 var dectab = undefined;
-                var tablelen = Mem4(stringtable);
-                var rootaddr = Mem4(stringtable+8);
-                var cache_stringtable = (stringtable+tablelen <= ramstart);
+                var tablelen = Mem4(self.stringtable);
+                var rootaddr = Mem4(self.stringtable+8);
+                var cache_stringtable = (self.stringtable+tablelen <= ramstart);
                 if (cache_stringtable) {
-                    //qlog("building decoding table at " + stringtable.toString(16) + ", length " + tablelen.toString(16));
+                    //qlog("building decoding table at " + self.stringtable.toString(16) + ", length " + tablelen.toString(16));
                     var tmparray = Array(1);
                     //var pathstart = new Date().getTime(); //debug
                     build_decoding_tree(tmparray, rootaddr, 4 /*CACHEBITS*/, 0);
@@ -4501,13 +4563,14 @@
                     //qlog("done building; time = " + ((new Date().getTime())-pathstart) + " ms"); //debug
                 }
 
-                textenv = new VMTextEnv(stringtable, dectab);
-                vmtextenv_table[stringtable] = textenv;
+                textenv = new VMTextEnv(self.stringtable, dectab);
+                vmtextenv_table[self.stringtable] = textenv;
             }
 
             decoding_tree = textenv.decoding_tree;
-            vmstring_table = textenv.vmstring_tables[iosysmode];
+            vmstring_table = textenv.vmstring_tables[self.iosysmode];
         }
+        self.set_string_table = set_string_table;
 
         /* Set the VM iosys, and adjust the vmstring_table register appropriately.
          */
@@ -4530,15 +4593,16 @@
                     break;
             }
 
-            iosysmode = mode;
-            iosysrock = rock;
+            self.iosysmode = mode;
+            self.iosysrock = rock;
 
-            var textenv = vmtextenv_table[stringtable];
+            var textenv = vmtextenv_table[self.stringtable];
             if (textenv === undefined)
                 vmstring_table = undefined;
             else
-                vmstring_table = textenv.vmstring_tables[iosysmode];
+                vmstring_table = textenv.vmstring_tables[self.iosysmode];
         }
+        self.set_iosys = set_iosys;
 
         /* The form of the decoding tree is a tree of arrays and leaf objects.
          An array always has 16 entries (2^CACHESIZE). Every object, including
@@ -4634,9 +4698,9 @@
         function stream_num(nextcp, value, inmiddle, charnum) {
             var buf = (value & 0xffffffff).toString(10);
 
-            //qlog("### stream_num(" + nextcp + ", " + buf + ", " + inmiddle + ", " + charnum + ") iosys " + iosysmode);
+            //qlog("### stream_num(" + nextcp + ", " + buf + ", " + inmiddle + ", " + charnum + ") iosys " + self.iosysmode);
 
-            switch (iosysmode) {
+            switch (self.iosysmode) {
                 case 2: /* glk */
                     if (charnum)
                         buf = buf.slice(charnum);
@@ -4646,7 +4710,7 @@
                 case 1: /* filter */
                     if (!inmiddle) {
                         // push_callstub(0x11, 0);
-                        frame.valstack.push(0x11, 0, nextcp, frame.framestart);
+                        self.frame.valstack.push(0x11, 0, nextcp, self.frame.framestart);
                         inmiddle = true;
                     }
                     if (charnum < buf.length) {
@@ -4654,9 +4718,9 @@
                         /* Note that value is unsigned here -- only unsigned values
                          go on the stack. */
                         // push_callstub(0x12, charnum+1);
-                        frame.valstack.push(0x12, charnum+1, value, frame.framestart);
-                        tempcallargs[0] = ch;
-                        enter_function(iosysrock, 1);
+                        self.frame.valstack.push(0x12, charnum+1, value, self.frame.framestart);
+                        self.tempcallargs[0] = ch;
+                        enter_function(self.iosysrock, 1);
                         return true;
                     }
                     break;
@@ -4668,15 +4732,16 @@
             if (inmiddle) {
                 var desttype, destaddr;
                 /* String terminated. Carry out a pop_callstub_string(). */
-                if (frame.valstack.pop() != frame.framestart)
+                if (self.frame.valstack.pop() != self.frame.framestart)
                     fatal_error("Call stub frameptr does not match frame.");
-                pc = frame.valstack.pop();
-                destaddr = frame.valstack.pop();
-                desttype = frame.valstack.pop();
+                self.pc = self.frame.valstack.pop();
+                destaddr = self.frame.valstack.pop();
+                desttype = self.frame.valstack.pop();
                 if (desttype != 0x11)
                     fatal_error("String-on-string call stub while printing number.");
             }
         }
+        self.stream_num = stream_num;
 
         /* Look up a string, and print or execute it.
 
@@ -4693,7 +4758,7 @@
             var addrkey, strop, res;
             var desttype, destaddr;
 
-            //qlog("### stream_string("+addr+") from cp="+nextcp+" $"+nextcp.toString(16)+" in iosys "+iosysmode);
+            //qlog("### stream_string("+addr+") from cp="+nextcp+" $"+nextcp.toString(16)+" in iosys "+self.iosysmode);
 
             while (true) {
                 strop = undefined;
@@ -4705,29 +4770,29 @@
                 if (vmstring_table !== undefined && addr < ramstart) {
                     strop = vmstring_table[addrkey];
                     if (strop === undefined) {
-                        strop = compile_string(iosysmode, addr, inmiddle, bitnum);
+                        strop = compile_string(self.iosysmode, addr, inmiddle, bitnum);
                         vmstring_table[addrkey] = strop;
                         strings_compiled++; //###stats
                         strings_cached++; //###stats
                     }
                 }
                 else {
-                    strop = compile_string(iosysmode, addr, inmiddle, bitnum);
+                    strop = compile_string(self.iosysmode, addr, inmiddle, bitnum);
                     strings_compiled++; //###stats
                 }
 
                 //qlog("### strop(" + addrkey + (substring?":[sub]":"") + "): " + strop);
 
                 if (!(strop instanceof Function)) {
-                    if (iosysmode === 20)
-                        instance._outputBuffer.write(strop);
+                    if (self.iosysmode === 20)
+                        self.instance._outputBuffer.write(strop);
                     else
                         $quixe.put_jstring(strop);
                     if (!substring)
                         return false;
                 }
                 else {
-                    res = strop(nextcp, substring);
+                    res = strop(self, nextcp, substring);
                     if (res instanceof Array) {
                         /* Entered a substring */
                         substring = true;
@@ -4745,11 +4810,11 @@
                 }
 
                 /* String terminated. Carry out a pop_callstub_string(). */
-                if (frame.valstack.pop() != frame.framestart)
+                if (self.frame.valstack.pop() != self.frame.framestart)
                     fatal_error("Call stub frameptr does not match frame.");
-                pc = frame.valstack.pop();
-                destaddr = frame.valstack.pop();
-                desttype = frame.valstack.pop();
+                self.pc = self.frame.valstack.pop();
+                destaddr = self.frame.valstack.pop();
+                desttype = self.frame.valstack.pop();
 
                 if (desttype == 0x11) {
                     /* The call stub for the top-level string. Return to the main
@@ -4762,7 +4827,7 @@
                     substring = true;
                     bitnum = destaddr;
                     inmiddle = 0xE1;
-                    addr = pc;
+                    addr = self.pc;
                     //qlog("### end; pop to addr="+addr+"/"+inmiddle+"/"+bitnum);
                 }
                 else {
@@ -4770,6 +4835,7 @@
                 }
             }
         }
+        self.stream_string = stream_string;
 
         /* Generate a function which outputs the string, or rather one path of it.
          Like function paths, a string path only runs up to the first internal
@@ -4884,8 +4950,8 @@
                                         oputil_flush_string(context);
                                         oputil_push_substring_callstub(context);
                                         oputil_push_callstub(context, "0x10,"+bitnum, addr);
-                                        context.code.push("tempcallargs[0]="+cab.value+";");
-                                        context.code.push("enter_function(iosysrock, 1);");
+                                        context.code.push("self.tempcallargs[0]="+cab.value+";");
+                                        context.code.push("self.enter_function(self.iosysrock, 1);");
                                         retval = true;
                                         done = true;
                                         break;
@@ -4952,10 +5018,10 @@
                                 context.code.push("var otype, retval;");
                                 context.code.push("var oaddr = "+(cab.addr)+";");
                                 if (cab.type >= 0x09)
-                                    context.code.push("oaddr = Mem4(oaddr);");
+                                    context.code.push("oaddr = self.Mem4(oaddr);");
                                 if (cab.type == 0x0B)
-                                    context.code.push("oaddr = Mem4(oaddr);");
-                                context.code.push("otype = Mem1(oaddr);");
+                                    context.code.push("oaddr = self.Mem4(oaddr);");
+                                context.code.push("otype = self.Mem1(oaddr);");
                                 retval = "retval";
                                 done = true;
 
@@ -4968,13 +5034,13 @@
                                 if (cab.type == 0x0A || cab.type == 0x0B) {
                                     argc = Mem4(cab.addr+4);
                                     for (var ix=0; ix<argc; ix++)
-                                        context.code.push("tempcallargs["+ix+"]="+Mem4(cab.addr+8+4*ix)+";");
+                                        context.code.push("self.tempcallargs["+ix+"]="+Mem4(cab.addr+8+4*ix)+";");
                                 }
-                                context.code.push("enter_function(oaddr, "+argc+");");
+                                context.code.push("self.enter_function(oaddr, "+argc+");");
                                 context.code.push("retval = true;");
                                 context.code.push("}");
                                 context.code.push("else {");
-                                context.code.push("fatal_error('Unknown object while decoding string indirect reference.', otype);");
+                                context.code.push("self.fatal_error('Unknown object while decoding string indirect reference.', otype);");
                                 context.code.push("}");
                                 break;
                             default:
@@ -4987,13 +5053,13 @@
                     var node, byt, nodetype;
                     var done = false;
 
-                    if (!stringtable)
+                    if (!self.stringtable)
                         fatal_error("Attempted to print a compressed string with no table set.");
                     /* bitnum is already set right */
                     byt = Mem1(addr);
                     if (bitnum)
                         byt >>= bitnum;
-                    node = Mem4(stringtable+8);
+                    node = Mem4(self.stringtable+8);
 
                     while (!done) {
                         nodetype = Mem1(node);
@@ -5029,13 +5095,13 @@
                                         oputil_flush_string(context);
                                         oputil_push_substring_callstub(context);
                                         oputil_push_callstub(context, "0x10,"+bitnum, addr);
-                                        context.code.push("tempcallargs[0]="+ch+";");
-                                        context.code.push("enter_function(iosysrock, 1);");
+                                        context.code.push("self.tempcallargs[0]="+ch+";");
+                                        context.code.push("self.enter_function(self.iosysrock, 1);");
                                         retval = true;
                                         done = true;
                                         break;
                                 }
-                                node = Mem4(stringtable+8);
+                                node = Mem4(self.stringtable+8);
                                 break;
                             case 0x04: /* single Unicode character */
                                 ch = Mem4(node);
@@ -5048,13 +5114,13 @@
                                         oputil_flush_string(context);
                                         oputil_push_substring_callstub(context);
                                         oputil_push_callstub(context, "0x10,"+bitnum, addr);
-                                        context.code.push("tempcallargs[0]="+ch+";");
-                                        context.code.push("enter_function(iosysrock, 1);");
+                                        context.code.push("self.tempcallargs[0]="+ch+";");
+                                        context.code.push("self.enter_function(self.iosysrock, 1);");
                                         retval = true;
                                         done = true;
                                         break;
                                 }
-                                node = Mem4(stringtable+8);
+                                node = Mem4(self.stringtable+8);
                                 break;
                             case 0x03: /* C string */
                                 switch (curiosys) {
@@ -5076,7 +5142,7 @@
                                         done = true;
                                         break;
                                 }
-                                node = Mem4(stringtable+8);
+                                node = Mem4(self.stringtable+8);
                                 break;
                             case 0x05: /* C Unicode string */
                                 switch (curiosys) {
@@ -5098,7 +5164,7 @@
                                         done = true;
                                         break;
                                 }
-                                node = Mem4(stringtable+8);
+                                node = Mem4(self.stringtable+8);
                                 break;
                             case 0x08:
                             case 0x09:
@@ -5114,8 +5180,8 @@
                                 context.code.push("var otype, retval;");
                                 context.code.push("var oaddr = "+Mem4(node)+";");
                                 if (nodetype == 0x09 || nodetype == 0x0B)
-                                    context.code.push("oaddr = Mem4(oaddr);");
-                                context.code.push("otype = Mem1(oaddr);");
+                                    context.code.push("oaddr = self.Mem4(oaddr);");
+                                context.code.push("otype = self.Mem1(oaddr);");
                                 retval = "retval";
                                 done = true;
 
@@ -5128,13 +5194,13 @@
                                 if (nodetype == 0x0A || nodetype == 0x0B) {
                                     argc = Mem4(node+4);
                                     for (var ix=0; ix<argc; ix++)
-                                        context.code.push("tempcallargs["+ix+"]="+Mem4(node+8+4*ix)+";");
+                                        context.code.push("self.tempcallargs["+ix+"]="+Mem4(node+8+4*ix)+";");
                                 }
-                                context.code.push("enter_function(oaddr, "+argc+");");
+                                context.code.push("self.enter_function(oaddr, "+argc+");");
                                 context.code.push("retval = true;");
                                 context.code.push("}");
                                 context.code.push("else {");
-                                context.code.push("fatal_error('Unknown object while decoding string indirect reference.', otype);");
+                                context.code.push("self.fatal_error('Unknown object while decoding string indirect reference.', otype);");
                                 context.code.push("}");
                                 break;
                             default:
@@ -5164,8 +5230,8 @@
                         addr++;
                         if (ch != 0) {
                             oputil_push_callstub(context, "0x13,0", addr);
-                            context.code.push("tempcallargs[0]="+ch+";");
-                            context.code.push("enter_function(iosysrock, 1);");
+                            context.code.push("self.tempcallargs[0]="+ch+";");
+                            context.code.push("self.enter_function(self.iosysrock, 1);");
                             retval = true;
                         }
                         else {
@@ -5194,8 +5260,8 @@
                         addr+=4;
                         if (ch != 0) {
                             oputil_push_callstub(context, "0x14,0", addr);
-                            context.code.push("tempcallargs[0]="+ch+";");
-                            context.code.push("enter_function(iosysrock, 1);");
+                            context.code.push("self.tempcallargs[0]="+ch+";");
+                            context.code.push("self.enter_function(self.iosysrock, 1);");
                             retval = true;
                         }
                         else {
@@ -5214,7 +5280,7 @@
             if (!retval) {
                 /* The simple case; retval is false or undefined. Equivalent to a
                  function that prints text and returns false. */
-                ;;;if (context.code.length) {
+                ;;;if (context.code.length > 1) {
                     ;;;    fatal_error("Simple-case string generated code."); //assert
                     ;;;}
                 return context.buffer.join("");
@@ -5222,7 +5288,7 @@
             else {
                 oputil_flush_string(context);
                 context.code.push("return " + retval + ";");
-                return make_code(context.code.join("\n"), "nextcp,substring");
+                return make_code(context.code.join("\n"), "_func_str_"+startaddr, "nextcp", "substring");
             }
         }
 
@@ -5234,7 +5300,7 @@
                     return 0x00030102; /* Glulx spec version 3.1.2 */
 
                 case 1: /* TerpVersion */
-                    return 0x00010301; /* Quixe version 1.3.1 */
+                    return 0x00020101; /* Quixe version 2.1.1 */
 
                 case 2: /* ResizeMem */
                     return 1; /* Memory resizing works. */
@@ -5286,56 +5352,53 @@
                     return 0;
             }
         }
+        self.do_gestalt = do_gestalt;
 
         /* This fetches a search key, and returns an array containing the key
          (bytewise). Actually it always returns the same array.
          */
-        var tempsearchkey = [];
         function fetch_search_key(addr, len, options) {
             var ix;
-            tempsearchkey.length = len;
 
             if (options & 1) {
                 /* indirect key */
-                for (ix=0; ix<len; ix++)
-                    tempsearchkey[ix] = Mem1(addr+ix);
+                return MemSlice(addr, len);
             }
             else {
                 switch (len) {
-                    case 4:
-                        tempsearchkey[0] = (addr >> 24) & 0xFF;
-                        tempsearchkey[1] = (addr >> 16) & 0xFF;
-                        tempsearchkey[2] = (addr >> 8) & 0xFF;
-                        tempsearchkey[3] = addr & 0xFF;
-                        break;
-                    case 2:
-                        tempsearchkey[0] = (addr >> 8) & 0xFF;
-                        tempsearchkey[1] = addr & 0xFF;
-                        break;
-                    case 1:
-                        tempsearchkey[0] = addr & 0xFF;
-                        break;
-                    default:
-                        throw('Direct search key must hold one, two, or four bytes.');
+                case 4:
+                    return [
+                        (addr >> 24) & 0xFF,
+                        (addr >> 16) & 0xFF,
+                        (addr >> 8) & 0xFF,
+                        addr & 0xFF
+                    ];
+                case 2:
+                    return [
+                        (addr >> 8) & 0xFF,
+                        addr & 0xFF
+                    ];
+                case 1:
+                    return [addr & 0xFF];
+                default:
+                    throw('Direct search key must hold one, two, or four bytes.');
                 }
             }
-
-            return tempsearchkey;
         }
 
         function linear_search(key, keysize, start,
                                structsize, numstructs, keyoffset, options) {
 
-            var ix, count, match, byt;
+            var ix, count, match, bytes;
             var retindex = ((options & 4) != 0);
             var zeroterm = ((options & 2) != 0);
             var keybuf = fetch_search_key(key, keysize, options);
 
             for (count=0; count<numstructs; count++, start+=structsize) {
                 match = true;
+                bytes = MemSlice(start + keyoffset, keysize);
                 for (ix=0; match && ix<keysize; ix++) {
-                    byt = Mem1(start + keyoffset + ix);
-                    if (byt != keybuf[ix])
+                    if (bytes[ix] != keybuf[ix])
                         match = false;
                 }
 
@@ -5348,9 +5411,9 @@
 
                 if (zeroterm) {
                     match = true;
+                    bytes = MemSlice(start + keyoffset, keysize);
                     for (ix=0; match && ix<keysize; ix++) {
-                        byt = Mem1(start + keyoffset + ix);
-                        if (byt != 0)
+                        if (bytes[ix] != 0)
                             match = false;
                     }
 
@@ -5447,6 +5510,10 @@
 
             return 0;
         }
+
+        self.linear_search = linear_search;
+        self.binary_search = binary_search;
+        self.linked_search = linked_search;
 
         /* Convert an integer (in IEEE-754 single-precision format) into a
          Javascript number.
@@ -5567,6 +5634,19 @@
                 return (expo << 23) | (fbits);
         }
 
+        self.decode_float = decode_float;
+        self.encode_float = encode_float;
+
+        /* ----------------------------------------------------------------- */
+
+        /* Now we declare all the VM global variables and constants.
+
+           Some of these are (private) variables; some live in the self object.
+           There's no real difference, except for the rule that JIT-compiled
+           functions cannot access private variables. I could have put all
+           of them in self, but I was lazy.
+        */
+
         /* Parameters set at prepare() time, including the game image and any
          execution options. */
 
@@ -5574,16 +5654,16 @@
         var game_signature = null; /* string, containing the first 64 bytes of image */
         var opt_rethrow_exceptions = null;
 
-        /* The VM state variables */
+        /* The VM state variables. */
 
         var memmap; /* array of bytes */
         var stack; /* array of StackFrames */
-        var frame; /* the top of the stack */
-        var vm_started = false; /* Quixe is initialized */
-        var vm_stopped = false; /* Quixe has shut down */
-        var tempcallargs; /* only used momentarily, for enter_function() */
-        var tempglkargs; /* only used momentarily, for the @glk opcode */
-        var done_executing; /* signals that we've quit *or* paused for interaction */
+        self.frame = null; /* the top of the stack */
+        self.vm_started = false; /* Quixe is initialized */
+        self.vm_stopped = false; /* Quixe has shut down */
+        self.tempcallargs = null; /* only used momentarily, for enter_function() */
+        self.tempglkargs = null; /* only used momentarily, for the @glk opcode */
+        self.done_executing = null; /* signals that we've quit *or* paused for interaction */
 
         var vmfunc_table; /* maps addresses to VMFuncs */
         var vmtextenv_table; /* maps stringtable addresses to VMTextEnvs */
@@ -5592,7 +5672,7 @@
         var decoding_tree; /* binary tree of string nodes */
         var vmstring_table; /* maps addresses to functions or strings */
 
-        var random_func; /* Math.random or deterministic equivalent */
+        self.random_func = null; /* Math.random or deterministic equivalent */
 
         /* Header constants. */
         var ramstart;
@@ -5604,14 +5684,17 @@
         var checksum;
 
         /* The VM registers. */
-        var pc;
-        var stringtable;
-        var endmem;        // always memmap.length
-        var protectstart, protectend;
-        var iosysmode, iosysrock;
+        self.pc = null;
+        self.stringtable = null;
+        self.endmem = null;        // always memmap.length
+        self.protectstart = null;
+        self.protectend = null;
+        self.iosysmode = null;
+        self.iosysrock = null;
 
         var undostack;     // array of VM state snapshots.
-        var resumefuncop, resumevalue;
+        self.resumefuncop = null;
+        self.resumevalue = null;
 
         /* Memory allocation heap. Blocks have "addr" and "size" properties. */
         var heapstart;     // Start address of the heap.
@@ -5636,13 +5719,13 @@
             if (!game_image)
                 fatal_error("There is no Glulx game file loaded.");
 
-            vm_started = true;
-            resumefuncop = null;
-            resumevalue = 0;
+            self.vm_started = true;
+            self.resumefuncop = null;
+            self.resumevalue = 0;
             memmap = null;
             stack = [];
-            frame = null;
-            pc = 0;
+            self.frame = null;
+            self.pc = 0;
 
             if (game_image.length < 36)
                 fatal_error("This is too short to be a valid Glulx file.");
@@ -5666,8 +5749,8 @@
             checksum = ByteRead4(game_image, 32);
 
             /* Set the protection range to (0, 0), meaning "off". */
-            protectstart = 0;
-            protectend = 0;
+            self.protectstart = 0;
+            self.protectend = 0;
 
             if (ramstart < 0x100
                     || endgamefile < ramstart
@@ -5677,17 +5760,17 @@
             if (endgamefile != game_image.length)
                 fatal_error("The game file length does not agree with the header.");
 
-            done_executing = false;
+            self.done_executing = false;
             vmfunc_table = {};
             vmtextenv_table = {};
             decoding_tree = undefined;
             vmstring_table = undefined;
-            tempcallargs = Array(8);
-            tempglkargs = Array(1);
+            self.tempcallargs = Array(8);
+            self.tempglkargs = Array(8);
             set_random(0);
 
-            endmem = origendmem;
-            stringtable = 0;
+            self.endmem = origendmem;
+            self.stringtable = 0;
 
             undostack = [];
 
@@ -5713,17 +5796,17 @@
             /* Build (or rebuild) main memory array. */
             memmap = null; // garbage-collect old memmap
             memmap = game_image.slice(0, endgamefile);
-            endmem = memmap.length;
+            self.endmem = memmap.length;
             change_memsize(origendmem, false);
             /* endmem is now origendmem */
 
             paste_protected_range(protect);
 
             stack = [];
-            frame = null;
-            pc = 0;
-            iosysmode = 0;
-            iosysrock = 0;
+            self.frame = null;
+            self.pc = 0;
+            self.iosysmode = 0;
+            self.iosysrock = 0;
             set_string_table(origstringtable);
 
             /* Note that we do not reset the protection range. */
@@ -5733,6 +5816,7 @@
 
             /* We're now ready to execute. */
         }
+        self.vm_restart = vm_restart;
 
         /* Run-length-encode an array, for Quetzal. */
         function compress_bytes(arr) {
@@ -5776,32 +5860,33 @@
             return result;
         }
 
-        /* Pack a map of { ID -> bytes } into a single byte array.
+        /* Pack an array of { key:ID, chunk:bytes } into a single byte array.
          The ID should be a 4-character string.
          */
         function pack_iff_chunks(chunks) {
-            keys = [];
-            for (var key in chunks) {
+            bytes = [];
+            for (var ix = 0; ix < chunks.length; ix++) {
+                var key = chunks[ix].key;
+                var chunk = chunks[ix].chunk;
                 if (key.length != 4) {
                     fatal_error("Bad chunk ID (must be exactly 4 chars): " + key);
                 }
-                keys.push(key);
-            }
-            keys.sort(); // Ensures consistent behaviour across browsers.
-
-            bytes = [];
-            for (var ix = 0; ix < keys.length; ix++) {
-                var key = keys[ix];
-                var chunk = chunks[key];
+                if (chunk == undefined) {
+                    fatal_error("Missing chunk data: " + key);
+                }
                 //qlog("Writing " + key + " (" + chunk.length + " bytes)");
                 BytePushString(bytes, key);
                 BytePush4(bytes, chunk.length);
                 bytes = bytes.concat(chunk);
+                /* Align to even length... */
+                if (bytes.length & 1)
+                    bytes.push(0);
             }
             return bytes;
         }
 
         /* Unpack a byte array into an { ID -> bytes } map, or undefined on error.
+           The order of chunks is not preserved.
          */
         function unpack_iff_chunks(bytes) {
             chunks = {};
@@ -5822,6 +5907,9 @@
                 }
                 chunks[key] = bytes.slice(pos, pos + size);
                 pos += size;
+                /* Align to even length... */
+                if (pos & 1)
+                    pos += 1;
                 //qlog("Reading " + key + " (" + size + " bytes)");
             }
             return chunks;
@@ -5831,7 +5919,7 @@
          on success.
          */
         function vm_save() {
-            ;;;if (memmap.length != endmem) {
+            ;;;if (memmap.length != self.endmem) {
                 ;;;    fatal_error("Memory length was incorrect before save."); //assert
                 ;;;}
 
@@ -5841,9 +5929,9 @@
         }
 
         function get_state() {
-            chunks = {};
+            chunks = [];
 
-            chunks["IFhd"] = game_image.slice(0, 128);
+            chunks.push({ key:"IFhd", chunk:game_image.slice(0, 128) });
 
             var cmem = memmap.slice(ramstart);
             for (var i = ramstart; i < game_image.length; i++) {
@@ -5852,21 +5940,23 @@
             cmem = compress_bytes(cmem);
             cmem.splice(0, 0, 0,0,0,0); // prepend four zeroes
             // Write in the endmem value
-            ByteWrite4(cmem, 0, endmem);
-            chunks["CMem"] = cmem;
+            ByteWrite4(cmem, 0, self.endmem);
+            chunks.push({key:"CMem", chunk:cmem});
 
-            chunks["Stks"] = [];
+            var stkschunk = [];
+            chunks.push({ key:"Stks", chunk:stkschunk });
             for (var i = 0; i < stack.length; i++) {
-                push_serialized_stackframe(stack[i], chunks["Stks"]);
+                push_serialized_stackframe(stack[i], stkschunk);
             }
 
             if (heap_is_active()) {
-                chunks["MAll"] = [];
-                BytePush4(chunks["MAll"], heapstart);
-                BytePush4(chunks["MAll"], usedlist.length);
+                var mallchunk = [];
+                chunks.push({ key:"MAll", chunk:mallchunk });
+                BytePush4(mallchunk, heapstart);
+                BytePush4(mallchunk, usedlist.length);
                 for (var i = 0; i < usedlist.length; i++) {
-                    BytePush4(chunks["MAll"], usedlist[i].addr);
-                    BytePush4(chunks["MAll"], usedlist[i].size);
+                    BytePush4(mallchunk, usedlist[i].addr);
+                    BytePush4(mallchunk, usedlist[i].size);
                 }
             }
 
@@ -5874,7 +5964,7 @@
             BytePushString(payload_bytes, "IFZS");
             payload_bytes = payload_bytes.concat(pack_iff_chunks(chunks));
 
-            return pack_iff_chunks({"FORM": payload_bytes});
+            return pack_iff_chunks([{ key:"FORM", chunk:payload_bytes }]);
         }
 
         /* Reads a VM state snapshot from the given $glk stream and restores it.
@@ -5941,23 +6031,23 @@
                 memmap[i] ^= game_image[i];
             }
 
-            ;;;if (memmap.length != endmem) {
+            ;;;if (memmap.length != self.endmem) {
                 ;;;    fatal_error("Memory length was incorrect after restore."); //assert
                 ;;;}
 
             var stackchunk = chunks["Stks"];
             stack = [];
             while (stackchunk.length) {
-                frame = pop_deserialized_stackframe(stackchunk);
-                if (!frame) {
+                self.frame = pop_deserialized_stackframe(stackchunk);
+                if (!self.frame) {
                     fatal_error("vm_restore failed: bad stack frame");
                 }
-                stack.unshift(frame);
+                stack.unshift(self.frame);
             }
             for (var i = 0; i < stack.length; i++) {
                 stack[i].depth = i;
             }
-            frame = stack[stack.length - 1];
+            self.frame = stack[stack.length - 1];
 
             var heapchunk = chunks["MAll"];
             if (heapchunk && heapchunk.length >= 8) {
@@ -5978,7 +6068,7 @@
                 for (var i = 0; i < usedlist.length; i++) {
                     var addr = usedlist[i].addr;
                     var size = usedlist[i].size;
-                    if (addr < heapend || (addr + size) > endmem) {
+                    if (addr < heapend || (addr + size) > self.endmem) {
                         fatal_error("vm_restore failed: corrupt dynamic heap");
                     }
                     if (addr > heapend) {
@@ -5986,8 +6076,8 @@
                     }
                     heapend = addr + size;
                 }
-                if (heapend < endmem) {
-                    freelist.push(new HeapBlock(heapend, endmem - heapend));
+                if (heapend < self.endmem) {
+                    freelist.push(new HeapBlock(heapend, self.endmem - heapend));
                 }
             }
 
@@ -5999,14 +6089,14 @@
         /* Create a snapshot of the VM state.
          */
         function vm_createsnapshot() {
-            if (memmap.length != endmem) {
+            if (memmap.length != self.endmem) {
                 fatal_error("Memory length was incorrect before saveundo."); //assert
             }
 
             var snapshot = {};
             snapshot.ram = memmap.slice(ramstart);
-            snapshot.endmem = endmem;
-            snapshot.pc = pc;
+            snapshot.endmem = self.endmem;
+            snapshot.pc = self.pc;
             snapshot.stack = [];
             for (var i = 0; i < stack.length; i++) {
                 snapshot.stack[i] = clone_stackframe(stack[i]);
@@ -6051,10 +6141,10 @@
             var protect = copy_protected_range();
 
             memmap = memmap.slice(0, ramstart).concat(snapshot.ram);
-            endmem = snapshot.endmem;
+            self.endmem = snapshot.endmem;
             stack = snapshot.stack;
-            frame = stack[stack.length - 1];
-            pc = snapshot.pc;
+            self.frame = stack[stack.length - 1];
+            self.pc = snapshot.pc;
 
             heapstart = snapshot.heapstart;
             usedlist = snapshot.usedlist;
@@ -6062,7 +6152,7 @@
 
             paste_protected_range(protect);
 
-            if (memmap.length != endmem) {
+            if (memmap.length != self.endmem) {
                 fatal_error("Memory length was incorrect after snapshot restore."); //assert
             }
 
@@ -6071,13 +6161,18 @@
             return true;
         }
 
+        self.vm_save = vm_save;
+        self.vm_restore = vm_restore;
+        self.vm_saveundo = vm_saveundo;
+        self.vm_restoreundo = vm_restoreundo;
+
         /* Change the size of the memory map. The internal flag should be true
          only when the heap-allocation system is calling.
          */
         function change_memsize(newlen, internal) {
             var lx;
 
-            if (newlen == endmem)
+            if (newlen == self.endmem)
                 return;
 
             if ((!internal) && heap_is_active())
@@ -6088,14 +6183,15 @@
                 fatal_error("Can only resize Glulx memory space to a 256-byte boundary.");
 
             memmap.length = newlen;
-            if (newlen > endmem) {
-                for (lx=endmem; lx<newlen; lx++) {
+            if (newlen > self.endmem) {
+                for (lx=self.endmem; lx<newlen; lx++) {
                     memmap[lx] = 0;
                 }
             }
 
-            endmem = newlen;
+            self.endmem = newlen;
         }
+        self.change_memsize = change_memsize;
 
         /* Return an object which represents the protected-memory range and its
          contents. This can later be pasted back into the VM. If there is no
@@ -6105,16 +6201,16 @@
          then call paste_protected_range() afterwards.
          */
         function copy_protected_range() {
-            if (protectstart >= protectend)
+            if (self.protectstart >= self.protectend)
                 return null;
 
-            var len = protectend - protectstart;
+            var len = self.protectend - self.protectstart;
             var obj = {
-                start: protectstart,
-                end: protectend,
+                start: self.protectstart,
+                end: self.protectend,
                 len: len
             };
-            var arr = memmap.slice(protectstart, protectend);
+            var arr = memmap.slice(self.protectstart, self.protectend);
 
             /* It is legal to protect a range that falls outside of memory; the
              extra bits are presumed to be zero. */
@@ -6135,8 +6231,8 @@
             var arr = obj.mem;
             var start = obj.start;
             var end = obj.end;
-            if (end > endmem)
-                end = endmem;
+            if (end > self.endmem)
+                end = self.endmem;
 
             for (ix=0, addr=start; addr<end; ix++, addr++) {
                 memmap[addr] = arr[ix];
@@ -6167,6 +6263,7 @@
 
             return 0;
         }
+        self.perform_verify = perform_verify;
 
         /* Return the game image signature. This is used as a fingerprint on save
          files, to ensure that you can't save in one game and restore in a
@@ -6212,7 +6309,9 @@
             return heapstart;
         }
 
-        /* Constructor. We never modify heap blocks, to ensure they can be reused
+        /* Constructor: HeapBlock
+
+         We never modify heap blocks, to ensure they can be reused
          safely across saveundo() and restore().
          */
         function HeapBlock(addr, size) {
@@ -6240,7 +6339,7 @@
 
         function heap_malloc(size) {
             if (!heap_is_active()) {
-                heapstart = endmem;
+                heapstart = self.endmem;
             }
 
             for (var i = 0, max = freelist.length; i < max; i++) {
@@ -6259,15 +6358,16 @@
             }
 
             // No free block is big enough. Grow the heap.
-            var addr = endmem;
+            var addr = self.endmem;
             var rounded_up_size = ((size + 0xFF) & 0xFFFFFF00);
-            change_memsize(endmem + rounded_up_size, true);
+            change_memsize(self.endmem + rounded_up_size, true);
             if (rounded_up_size > size) {
                 freelist.push(new HeapBlock(addr + size, rounded_up_size - size));
             }
             usedlist.push(new HeapBlock(addr, size));
             return addr;
         }
+        self.heap_malloc = heap_malloc;
 
         function heap_free(addr) {
             var pos = heap_binary_search(usedlist, addr);
@@ -6304,6 +6404,7 @@
 
             freelist.splice(pos, 0, block);
         }
+        self.heap_free = heap_free;
 
         /* Check that the heap state is consistent. This is slow, so we only
          call it in debug assertions.
@@ -6344,9 +6445,10 @@
                 }
             }
 
-            if (addr != endmem)
+            if (addr != self.endmem)
                 fatal_error("Heap inconsistency: overrun at end of heap");
         }
+        self.assert_heap_valid = assert_heap_valid;
 
         var debuginfo = {
             map: {},
@@ -6522,6 +6624,10 @@
             }
         }
 
+        /* Dummy value, returned by path functions on @quit or when leave_function()
+           pops the top-level stack frame. */
+        self.VMStopped = { dummy: 'The top-level function has returned.' };
+
         /* Begin executing code, compiling as necessary. When glk_select is invoked,
          or the game ends, this calls $glk.update() and exits.
          */
@@ -6529,49 +6635,41 @@
             var vmfunc, pathtab, path;
             var pathstart, pathend;
 
-            if (resumefuncop) {
-                //qlog("### at resume time, storing value " + resumevalue + " at funcop " + resumefuncop.key);
-                store_operand_by_funcop(resumefuncop, resumevalue);
-                resumefuncop = null;
-                resumevalue = 0;
+            if (self.resumefuncop) {
+                //qlog("### at resume time, storing value " + self.resumevalue + " at funcop " + self.resumefuncop.key);
+                store_operand_by_funcop(self.resumefuncop, self.resumevalue);
+                self.resumefuncop = null;
+                self.resumevalue = 0;
             }
 
             pathstart = new Date().getTime(); //###stats
 
-            while (!done_executing) {
-                //qlog("### pc now " + pc.toString(16));
-                vmfunc = frame.vmfunc;
-                pathtab = vmfunc[iosysmode];
-                path = pathtab[pc];
+            while (!self.done_executing) {
+                //qlog("### pc now " + self.pc.toString(16));
+                vmfunc = self.frame.vmfunc;
+                pathtab = vmfunc[self.iosysmode];
+                path = pathtab[self.pc];
                 if (path === undefined) {
-                    vmfunc.pathaddrs[pc] = true;
-                    path = compile_path(vmfunc, pc, iosysmode);
+                    vmfunc.pathaddrs[self.pc] = true;
+                    path = compile_path(vmfunc, self.pc, self.iosysmode);
                     paths_compiled++; //###stats
-                    if (pc < ramstart) {
-                        pathtab[pc] = path;
+                    if (self.pc < ramstart) {
+                        pathtab[self.pc] = path;
                         paths_cached++; //###stats
                     }
                 }
                 total_path_calls++; //###stats
-                try {
-                    path();
-                }
-                catch (ex) {
-                    if (ex === ReturnedFromMain) {
-                        done_executing = true;
-                        vm_stopped = true;
-                    }
-                    else {
-                        /* Some other exception. */
-                        throw ex;
-                    }
+                var res = path(self);
+                if (res === self.VMStopped) {
+                    self.done_executing = true;
+                    self.vm_stopped = true;
                 }
             }
 
             pathend = new Date().getTime(); //###stats
             total_execution_time += (pathend-pathstart) / 1000.0; //###stats
 
-            //if (vm_stopped) {
+            //if (self.vm_stopped) {
             //    /* If the library resumes us after exiting, we'll call glk_exit()
             //     again. That's the library's problem. */
             //    $glk.glk_exit();//todo this should be an event
@@ -6584,7 +6682,7 @@
 
         /* End of Quixe namespace function. Return the object which will
          become the Quixe global. */
-        instance.version = '1.3.1'; /* Quixe version */
+        instance.version = '2.1.1'; /* Quixe version */
         instance.load = load;
         instance.get_state = get_state;
         instance.restore_state = restore_state;
@@ -6604,22 +6702,24 @@
         instance.readline_resume = function (line) {
             qlog('### ReadLine callback = ' + line);
             if (line === null)
-                MemW4(resumevalue.addr, 0);
+                MemW4(self.resumevalue.addr, 0);
             else {
-                MemW4(resumevalue.addr, line.length);
+                MemW4(self.resumevalue.addr, line.length);
                 for (var i=0; i < line.length; i++)
-                    MemW1(resumevalue.addr + 4 + i, line.charCodeAt(i));
+                    MemW1(self.resumevalue.addr + 4 + i, line.charCodeAt(i));
             }
-            resumevalue = null;
+            self.resumevalue = null;
             quixe_resume();
         };
         instance.readkey_resume = function (key) {
             qlog('### ReadKey callback = ' + key);
-            resumefuncop = { mode: 8 };
-            resumevalue = key;
+            self.resumefuncop = { mode: 8 };
+            self.resumevalue = key;
             quixe_resume();
         };
         instance.restore_snapshot = vm_restoresnapshot;
+
+        self.instance = instance;
 
         return instance;
     }
